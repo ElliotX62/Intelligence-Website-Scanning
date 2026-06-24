@@ -181,7 +181,7 @@ Indonesian:
 
 ---
 
-Explanation of each file in the core folder section of the directory architecture:
+Explanation of each file in the core folder section of the directory architecture:Explanation of each file in the core folder section of the directory architecture:
 
 ---
 
@@ -286,5 +286,115 @@ Explanation of each file in the core folder section of the directory architectur
 **Tugas:** Mesin utama yang menghubungkan dan mengelola semua komponen core.
 
 **Tujuan:** File ini adalah jantung dari sistem yang mengelola dependency injection antar komponen menggunakan `EngineBuilder` pattern dengan methods `with_scanner()`, `with_analyzer()`, `with_orchestrator()`, `build() -> Engine`. Menyediakan event bus untuk komunikasi antar modul melalui `mpsc::channel` dengan priority queue (high priority untuk scan commands, medium untuk analysis, low untuk reporting). Mengelola lifecycle dari setiap komponen (startup, running, shutdown) dengan `State` enum (Uninitialized, Initializing, Running, Pausing, Paused, ShuttingDown, Shutdown). Implementasi `start()` yang menginisialisasi semua komponen dalam urutan yang tepat (scanner -> analyzer -> orchestrator) dan membuat thread pool dengan `tokio::runtime` untuk non-blocking operations. Implementasi `shutdown()` dengan graceful shutdown signal: mengirim `SIGTERM` ke semua components, menunggu 30 detik untuk pending operations selesai, dan force stop jika timeout tercapai. Mengimplementasikan `event_loop()` yang memproses events dari semua components melalui `event_bus`.
+
+---
+
+Explanation of each file in the core folder section of the directory architecture:Explanation of each file in the modules folder, starting from all the contents of the first folder, namely the network from the directory architecture:
+
+Here is the translation of everything into English without any changes:
+
+---
+
+## 📁 **`modules/` - FUNCTIONAL MODULES**
+
+---
+
+### 📂 **`modules/network/` - Network Scanning**
+
+#### **1. `dns_enum.rs` (Rust)**
+
+**Task:** Performs complete DNS enumeration to collect all information related to the target domain.
+
+**Purpose:** This file is responsible for collecting all available DNS record types from the target domain using `trust-dns-resolver`. Records collected include: A (IPv4 address), AAAA (IPv6 address), CNAME (canonical name/alias), MX (mail exchange servers with priority), TXT (text records including SPF for email authentication, DKIM for email signing, DMARC for email policy), NS (nameservers managing the domain), SOA (start of authority with primary nameserver, admin email, serial number, refresh/retry/expire intervals), and SRV (service records for protocols such as SIP, LDAP). Attempts zone transfer using `AXFR` query to get all records at once if the DNS server is not securely configured. Searches for subdomains using brute force and dictionary attack techniques with a wordlist of 50,000+ common subdomains (admin, dev, staging, api, app, mail, ftp, blog, shop, forum, support, test, backup) using rate limiting with `Semaphore::new(50)` to avoid detection. Valid subdomain results are stored in a `HashSet` for deduplication.
+
+---
+
+#### **2. `port_scanner.go` (Go)**
+
+**Task:** Scans TCP and UDP ports on the target to discover running services.
+
+**Purpose:** This file implements various port scanning methods to detect running services. `ScanTCP()` uses `net.DialTimeout` with worker pool pattern for concurrency (create N workers = threads, each worker reads from portsChan, performs dial, sends results to resultsChan). `ScanSYN()` uses raw sockets with `golang.org/x/net/ipv4` to craft SYN packets (stealth scan) and listens for SYN-ACK responses with `conn.ReadFrom`. `ScanUDP()` to detect open UDP services. `FIN/NULL/XMAS` scan to bypass firewalls by sending non-standard flags. After ports are discovered, `ServiceDetection()` connects to the port, sends probes (HTTP, SMTP, FTP, SSH, MySQL, PostgreSQL, MongoDB, Redis, etc), and analyzes banner responses with regex patterns to detect service name and version (examples: "220" for FTP, "SSH-2.0" for SSH, "220 mail" for SMTP).
+
+---
+
+#### **3. `whois_lookup.py` (Python)**
+
+**Task:** Retrieves and parses WHOIS data from the target domain.
+
+**Purpose:** This file uses the `whois` library with custom server selection based on TLD (.com, .org, .net, .id, .uk, etc) to obtain domain ownership information. Implements `parse_whois()` with regex patterns to extract fields: `Registrar` (registrar company name), `Creation Date` (date domain was first registered), `Expiration Date` (domain expiration date), `Updated Date` (last update date), `Name Servers` (list of nameservers used), `Registrant Email` (domain owner's email), `Registrant Organization` (owner organization name), `Registrant Country` (owner's country), `Registrant Phone` (owner's phone number). For `Registrar` validation uses cache from IANA list to ensure the registrar is officially registered. Implements `check_availability(domain: str)` to check if the domain is available (not yet registered). Stores results in `WhoisData` dataclass with `__post_init__` to convert string dates to `datetime` objects.
+
+---
+
+#### **4. `traceroute_analyzer.rs` (Rust)**
+
+**Task:** Traces and analyzes the network path to the target server.
+
+**Purpose:** This file sends UDP packets to a high port (33434) with incrementing TTL (Time-To-Live) using the `TOS` field set for `IP_TOS` (0x10). Each hop returns an ICMP Time Exceeded response captured using `socket2` for raw socket access. For each hop, records IP address, RTT (round trip time) in ms (with 3 probes per hop for accuracy), and hostname (reverse DNS lookup using `trust-dns-resolver`). Implements `geolocate_hops()` using the `maxminddb` library with GeoLite2 City database to map IPs to locations (country, city, latitude, longitude, timezone). Generates ASCII art visualization for the traced path like:
+```
+1. 192.168.1.1 (Home Router) [1ms]
+2. 10.0.0.1 (ISP Gateway) [5ms]
+3. 172.16.1.2 (AS1234 - Telkom, Jakarta) [12ms]
+4. 203.0.113.1 (AS5678 - Cloudflare, Singapore) [45ms]
+5. 104.16.0.1 (Target Server - Cloudflare) [50ms]
+```
+
+---
+
+#### **5. `ssl_cert_analyzer.rs` (Rust)**
+
+**Task:** Analyzes the SSL/TLS certificate used by the website.
+
+**Purpose:** This file uses `rustls` with `ClientConfig::builder()` to create a TLS connection to the target host and port. Handshake is performed with `ServerName::try_from(host)`, then after successful handshake, extracts the certificate chain from `server_cert_verifier`. Uses `webpki` to parse the certificate and extract information: `subject` (Common Name/CN), `issuer` (Certificate Authority that issued it), `validity` (not_before and not_after dates), `subject_alt_names` (SAN for all protected domains), `key_usage` (digitalSignature, keyEncipherment), `extended_key_usage` (serverAuth, clientAuth), `signature_algorithm` (RSA-SHA256, ECDSA-SHA256), `public_key` (type RSA or ECDSA and key size). Implements `check_weak_ciphers()` with a list of known weak/obsolete ciphers (RC4, 3DES, IDEA, export ciphers). Implements `check_protocols()` to check if SSLv2, SSLv3, TLSv1.0, TLSv1.1 are still enabled (should be disabled as they are deprecated). Generates a `CertRating` with score based on key length (>=2048 bits for RSA, >=256 bits for ECDSA), cipher strength (AES-GCM > AES-CBC > RC4), protocol version (TLSv1.3 > TLSv1.2 > TLSv1.1), and certificate validity (validity period not too long).
+
+---
+
+Indonesian:
+
+### **📂 `modules/network/` - Pemindaian Jaringan**
+
+#### **1. `dns_enum.rs` (Rust)**
+
+**Tugas:** Melakukan enumerasi DNS lengkap untuk mengumpulkan semua informasi terkait domain target.
+
+**Tujuan:** File ini bertanggung jawab untuk mengumpulkan semua tipe record DNS yang tersedia dari domain target menggunakan `trust-dns-resolver`. Record yang dikumpulkan meliputi: A (IPv4 address), AAAA (IPv6 address), CNAME (canonical name/alias), MX (mail exchange servers dengan priority), TXT (text records termasuk SPF untuk email authentication, DKIM untuk email signing, DMARC untuk email policy), NS (nameservers yang mengelola domain), SOA (start of authority dengan primary nameserver, email admin, serial number, refresh/retry/expire intervals), dan SRV (service records untuk protocol seperti SIP, LDAP). Mencoba melakukan zone transfer menggunakan `AXFR` query untuk mendapatkan semua records sekaligus jika DNS server tidak dikonfigurasi dengan aman. Mencari subdomain menggunakan teknik brute force dan dictionary attack dengan wordlist 50,000+ subdomain umum (admin, dev, staging, api, app, mail, ftp, blog, shop, forum, support, test, backup) menggunakan rate limiting dengan `Semaphore::new(50)` untuk menghindari detection. Hasil subdomain valid disimpan dalam `HashSet` untuk deduplication.
+
+---
+
+#### **2. `port_scanner.go` (Go)**
+
+**Tugas:** Memindai port TCP dan UDP pada target untuk menemukan service yang berjalan.
+
+**Tujuan:** File ini mengimplementasikan berbagai metode scanning port untuk mendeteksi service yang berjalan. `ScanTCP()` menggunakan `net.DialTimeout` dengan worker pool pattern untuk concurrency (create N workers = threads, each worker reads from portsChan, melakukan dial, hasil dikirim ke resultsChan). `ScanSYN()` menggunakan raw socket dengan `golang.org/x/net/ipv4` untuk crafting SYN packets (stealth scan) dan mendengarkan SYN-ACK responses dengan `conn.ReadFrom`. `ScanUDP()` untuk mendeteksi UDP services yang terbuka. `FIN/NULL/XMAS` scan untuk melewati firewall dengan mengirim flag yang tidak standar. Setelah port ditemukan, `ServiceDetection()` melakukan koneksi ke port, mengirim probe (HTTP, SMTP, FTP, SSH, MySQL, PostgreSQL, MongoDB, Redis, etc), dan menganalisis banner response dengan regex patterns untuk mendeteksi service name dan version (contoh: "220" untuk FTP, "SSH-2.0" untuk SSH, "220 mail" untuk SMTP).
+
+---
+
+#### **3. `whois_lookup.py` (Python)**
+
+**Tugas:** Mengambil dan mem-parsing data WHOIS dari domain target.
+
+**Tujuan:** File ini menggunakan `whois` library dengan custom server selection berdasarkan TLD (.com, .org, .net, .id, .uk, etc) untuk mendapatkan informasi kepemilikan domain. Implementasi `parse_whois()` dengan regex pattern untuk mengekstrak fields: `Registrar` (nama perusahaan pendaftar), `Creation Date` (tanggal domain pertama kali didaftarkan), `Expiration Date` (tanggal kadaluarsa domain), `Updated Date` (tanggal pembaruan terakhir), `Name Servers` (daftar nameserver yang digunakan), `Registrant Email` (email pemilik domain), `Registrant Organization` (nama organisasi pemilik), `Registrant Country` (negara pemilik), `Registrant Phone` (nomor telepon pemilik). Untuk `Registrar` validation menggunakan cache dari IANA list untuk memastikan registrar terdaftar secara resmi. Implementasi `check_availability(domain: str)` untuk mengecek apakah domain tersedia (belum terdaftar). Menyimpan hasil dalam `WhoisData` dataclass dengan `__post_init__` untuk convert string dates ke `datetime` objects.
+
+---
+
+#### **4. `traceroute_analyzer.rs` (Rust)**
+
+**Tugas:** Melacak dan menganalisis jalur jaringan menuju target server.
+
+**Tujuan:** File ini mengirimkan paket UDP ke port high (33434) dengan incrementing TTL (Time-To-Live) menggunakan `TOS` field set untuk `IP_TOS` (0x10). Setiap hop mengembalikan ICMP Time Exceeded response yang ditangkap menggunakan `socket2` untuk raw socket access. Untuk setiap hop, dicatat IP address, RTT (round trip time) dalam ms (dengan 3 probes per hop untuk akurasi), dan hostname (reverse DNS lookup menggunakan `trust-dns-resolver`). Implementasi `geolocate_hops()` menggunakan `maxminddb` library dengan GeoLite2 City database untuk mapping IP ke lokasi (country, city, latitude, longitude, timezone). Menghasilkan visualisasi ASCII art untuk path yang di-trace seperti: 
+```
+1. 192.168.1.1 (Home Router) [1ms]
+2. 10.0.0.1 (ISP Gateway) [5ms]
+3. 172.16.1.2 (AS1234 - Telkom, Jakarta) [12ms]
+4. 203.0.113.1 (AS5678 - Cloudflare, Singapore) [45ms]
+5. 104.16.0.1 (Target Server - Cloudflare) [50ms]
+```
+
+---
+
+#### **5. `ssl_cert_analyzer.rs` (Rust)**
+
+**Tugas:** Menganalisis sertifikat SSL/TLS yang digunakan oleh website.
+
+**Tujuan:** File ini menggunakan `rustls` dengan `ClientConfig::builder()` untuk membuat TLS connection ke target host dan port. Handshake dilakukan dengan `ServerName::try_from(host)`, kemudian setelah handshake berhasil, ekstrak certificate chain dari `server_cert_verifier`. Gunakan `webpki` untuk parse certificate dan ekstrak informasi: `subject` (Common Name/CN), `issuer` (Certificate Authority yang menerbitkan), `validity` (not_before dan not_after dates), `subject_alt_names` (SAN untuk semua domain yang dilindungi), `key_usage` (digitalSignature, keyEncipherment), `extended_key_usage` (serverAuth, clientAuth), `signature_algorithm` (RSA-SHA256, ECDSA-SHA256), `public_key` (type RSA atau ECDSA dan key size). Implementasi `check_weak_ciphers()` dengan list known weak/obsolete ciphers (RC4, 3DES, IDEA, export ciphers). Implementasi `check_protocols()` untuk memeriksa apakah SSLv2, SSLv3, TLSv1.0, TLSv1.1 masih diaktifkan (harusnya disabled karena sudah deprecated). Menghasilkan `CertRating` dengan score berdasarkan panjang key (>=2048 bit untuk RSA, >=256 bit untuk ECDSA), cipher strength (AES-GCM > AES-CBC > RC4), protocol version (TLSv1.3 > TLSv1.2 > TLSv1.1), dan certificate validity (masa berlaku tidak terlalu panjang).
 
 ---

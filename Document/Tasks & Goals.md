@@ -2,7 +2,6 @@ Here I will explain the tasks and purposes of each file and folder in the direct
 let's get started
 
 explanation of each file in the root directory:
-Okay, I will translate everything into English without any changes.
 
 ---
 
@@ -182,3 +181,110 @@ Indonesian:
 
 ---
 
+Explanation of each file in the core folder section of the directory architecture:
+
+---
+
+## 📁 **`core/` - SYSTEM CORE**
+
+---
+
+### **1. `scanner.rs` (Rust)**
+
+**Task:** Manages the entire website scanning process from start to finish.
+
+**Purpose:** This file is the main component responsible for coordinating all scanning modules (network, content, security, infrastructure, intelligence) in performing scans against target websites. The scanner implements scanning strategies based on the selected profile (aggressive for maximum speed, moderate for balance, stealth to avoid detection, or custom that can be configured by the user). Manages parallelization with thread pooling using `tokio::spawn` and `Semaphore` for concurrency control, timeout for each request to prevent hanging, and retry mechanism with exponential backoff if failures occur. Each module is run in parallel using `futures::stream::FuturesUnordered` for maximum efficiency. The scanner also stores raw scanning results into structured data ready to be processed by the analyzer, and provides a `cancel_scan()` function to stop ongoing scanning with graceful shutdown through a broadcast channel.
+
+---
+
+### **2. `analyzer.rs` (Rust)**
+
+**Task:** Deeply analyzes scan result data to find vulnerabilities and security patterns.
+
+**Purpose:** This file runs a complex analysis pipeline on data collected by the scanner. The pipeline consists of several stages: Stage 1 performs Data preprocessing (normalization, cleaning, deduplication) to clean data from noise. Stage 2 performs Pattern detection with `regex` and `aho-corasick` for efficient multiple pattern matching. Stage 3 performs Vulnerability matching with a CVE database loaded into memory (from `cve_data.json`) to match detected software versions with known vulnerabilities. Stage 4 performs Risk calculation using the formula `risk = (impact * likelihood) * business_factor` while considering CVSS (Common Vulnerability Scoring System) metrics and business context. Uses `rayon` for parallel processing in independent stages. Implements `cross_reference_analysis()` to connect findings between modules (for example: open ports with service version and CVE matching) resulting in more comprehensive and accurate analysis.
+
+---
+
+### **3. `orchestrator.go` (Go)**
+
+**Task:** Manages the end-to-end workflow of the entire system in a coordinated manner.
+
+**Purpose:** This file is the orchestra conductor that decides when to scan, when to run analysis, when to generate reports, and when to save data. Manages the state machine from IDLE → INITIALIZING → SCANNING → ANALYZING → REPORTING → COMPLETE → ERROR to ensure each stage runs in the correct order. Handles error handling and fallback mechanisms if failures occur in any stage, with retry logic using exponential backoff (1s, 2s, 4s, 8s, max 30s). Uses `context.WithTimeout` for each workflow step so no process hangs for too long. Implements the main loop with select statement for efficient multi-channel handling, and uses `sync.Map` for thread-safe state storage accessible by multiple goroutines.
+
+---
+
+### **4. `extractor.py` (Python)**
+
+**Task:** Extracts specific information from raw scan result data.
+
+**Purpose:** This file uses a combination of regex, Natural Language Processing (NLP), and pattern matching to extract valuable data from scanned website content. The `extract_emails()` method uses regex patterns from the `email-validator` library with optional SMTP validation via `smtplib` to ensure emails are truly valid. `extract_technologies()` uses the `Wappalyzer` library with a custom fingerprint database to detect frameworks, libraries, and technologies used by the website. `extract_api_keys()` uses pattern matching for common key formats (AWS keys with format `AKIA[0-9A-Z]{16}`, Google API keys with format `AIza[0-9A-Za-z\\-_]{35}`, Stripe keys with format `sk_live_[A-Za-z0-9]{24,32}`, GitHub tokens with format `ghp_[A-Za-z0-9]{36}`). Implements `extract_all()` with parallel extraction using `concurrent.futures.ThreadPoolExecutor` for maximum efficiency. Stores results in an `ExtractedData` dataclass with type hints for easy use by other components.
+
+---
+
+### **5. `validator.rs` (Rust)**
+
+**Task:** Validates the integrity and accuracy of scan result data.
+
+**Purpose:** This file is responsible for checking various security and validity aspects of collected data. `validate_ssl()` uses `rustls` and `webpki` for certificate chain validation, checking expiration, hostname validation, and revocation status through CRL or OCSP with `reqwest` for network requests. `validate_headers()` checks HTTP headers according to security standards (HSTS to enforce HTTPS, CSP to prevent XSS, X-Frame-Options to prevent clickjacking, X-Content-Type-Options to prevent MIME sniffing, Referrer-Policy to control referer information) with each rule having a severity level (CRITICAL, HIGH, MEDIUM, LOW). `check_mixed_content()` uses the `html5ever` parser to detect HTTP resources on HTTPS pages that can cause security warnings. `validate_redirects()` detects open redirect vulnerabilities and redirect chain issues that can be exploited for phishing attacks.
+
+---
+
+### **6. `engine.rs` (Rust)**
+
+**Task:** Main engine that connects and manages all core components.
+
+**Purpose:** This file is the heart of the system that manages dependency injection between components using the `EngineBuilder` pattern with methods `with_scanner()`, `with_analyzer()`, `with_orchestrator()`, `build() -> Engine`. Provides an event bus for inter-module communication through `mpsc::channel` with priority queue (high priority for scan commands, medium for analysis, low for reporting). Manages the lifecycle of each component (startup, running, shutdown) with `State` enum (Uninitialized, Initializing, Running, Pausing, Paused, ShuttingDown, Shutdown). Implements `start()` which initializes all components in the correct order (scanner -> analyzer -> orchestrator) and creates a thread pool with `tokio::runtime` for non-blocking operations. Implements `shutdown()` with graceful shutdown signal: sends `SIGTERM` to all components, waits 30 seconds for pending operations to complete, and force stops if timeout is reached. Implements `event_loop()` which processes events from all components through the `event_bus`.
+
+---
+
+## 📁 **`core/` - INTI SISTEM**
+
+---
+
+### **1. `scanner.rs` (Rust)**
+
+**Tugas:** Mengelola seluruh proses scanning website dari awal hingga akhir.
+
+**Tujuan:** File ini adalah komponen utama yang bertanggung jawab untuk mengoordinasikan semua modul scanning (network, content, security, infrastructure, intelligence) dalam melakukan pemindaian terhadap target website. Scanner mengimplementasikan strategi scanning berdasarkan profile yang dipilih (aggressive untuk kecepatan maksimum, moderate untuk keseimbangan, stealth untuk menghindari deteksi, atau custom yang dapat dikonfigurasi pengguna). Mengatur paralelisasi dengan thread pooling menggunakan `tokio::spawn` dan `Semaphore` untuk concurrency control, timeout untuk setiap request agar tidak menggantung, dan retry mechanism dengan exponential backoff jika terjadi kegagalan. Setiap module di-run secara paralel menggunakan `futures::stream::FuturesUnordered` untuk efisiensi maksimum. Scanner juga menyimpan hasil scanning mentah ke dalam structured data yang siap diproses oleh analyzer, serta menyediakan fungsi `cancel_scan()` untuk menghentikan scanning yang sedang berjalan dengan graceful shutdown melalui broadcast channel.
+
+---
+
+### **2. `analyzer.rs` (Rust)**
+
+**Tugas:** Menganalisis data hasil scanning secara mendalam untuk menemukan kerentanan dan pola keamanan.
+
+**Tujuan:** File ini menjalankan pipeline analisis kompleks pada data yang telah dikumpulkan oleh scanner. Pipeline terdiri dari beberapa stage: Stage 1 melakukan Data preprocessing (normalisasi, cleaning, deduplication) untuk membersihkan data dari noise. Stage 2 melakukan Pattern detection dengan `regex` dan `aho-corasick` untuk multiple pattern matching yang efisien. Stage 3 melakukan Vulnerability matching dengan CVE database yang di-load ke memory (dari `cve_data.json`) untuk mencocokkan versi software yang terdeteksi dengan kerentanan yang diketahui. Stage 4 melakukan Risk calculation menggunakan formula `risk = (impact * likelihood) * business_factor` dengan mempertimbangkan CVSS (Common Vulnerability Scoring System) metrics dan konteks bisnis. Menggunakan `rayon` untuk parallel processing di stage-stage yang independen. Implementasi `cross_reference_analysis()` untuk menghubungkan temuan antar module (misalnya: port terbuka dengan service version dan CVE matching) sehingga menghasilkan analisis yang lebih komprehensif dan akurat.
+
+---
+
+### **3. `orchestrator.go` (Go)**
+
+**Tugas:** Mengatur alur kerja end-to-end dari seluruh sistem secara terkoordinasi.
+
+**Tujuan:** File ini adalah konduktor orkestra yang memutuskan kapan harus melakukan scanning, kapan menjalankan analisis, kapan menggenerate report, dan kapan harus menyimpan data. Mengelola state machine dari IDLE → INITIALIZING → SCANNING → ANALYZING → REPORTING → COMPLETE → ERROR untuk memastikan setiap tahap berjalan dalam urutan yang benar. Menangani error handling dan fallback mechanisms jika terjadi kegagalan di salah satu tahap, dengan retry logic menggunakan exponential backoff (1s, 2s, 4s, 8s, max 30s). Menggunakan `context.WithTimeout` untuk setiap workflow step agar tidak ada proses yang menggantung terlalu lama. Mengimplementasikan main loop dengan select statement untuk multi-channel handling yang efisien, dan menggunakan `sync.Map` untuk thread-safe state storage yang dapat diakses oleh multiple goroutines.
+
+---
+
+### **4. `extractor.py` (Python)**
+
+**Tugas:** Mengekstrak informasi spesifik dari data mentah hasil scanning.
+
+**Tujuan:** File ini menggunakan kombinasi regex, Natural Language Processing (NLP), dan pattern matching untuk mengambil data berharga dari konten website yang telah di-scan. Metode `extract_emails()` menggunakan regex pattern dari `email-validator` library dengan validasi SMTP optional melalui `smtplib` untuk memastikan email benar-benar valid. `extract_technologies()` menggunakan `Wappalyzer` library dengan custom fingerprint database untuk mendeteksi framework, library, dan teknologi yang digunakan website. `extract_api_keys()` menggunakan pattern matching untuk common key formats (AWS keys dengan format `AKIA[0-9A-Z]{16}`, Google API keys dengan format `AIza[0-9A-Za-z\\-_]{35}`, Stripe keys dengan format `sk_live_[A-Za-z0-9]{24,32}`, GitHub tokens dengan format `ghp_[A-Za-z0-9]{36}`). Implementasi `extract_all()` dengan parallel extraction menggunakan `concurrent.futures.ThreadPoolExecutor` untuk efisiensi maksimum. Menyimpan hasil dalam `ExtractedData` dataclass dengan type hints untuk memudahkan penggunaan oleh komponen lain.
+
+---
+
+### **5. `validator.rs` (Rust)**
+
+**Tugas:** Memvalidasi integritas dan keakuratan data hasil scan.
+
+**Tujuan:** File ini bertanggung jawab untuk memeriksa berbagai aspek keamanan dan validitas dari data yang dikumpulkan. `validate_ssl()` menggunakan `rustls` dan `webpki` untuk certificate chain validation, memeriksa expiration, hostname validation, dan revocation status melalui CRL atau OCSP dengan `reqwest` untuk network request. `validate_headers()` memeriksa HTTP headers sesuai standar keamanan (HSTS untuk memaksa HTTPS, CSP untuk mencegah XSS, X-Frame-Options untuk mencegah clickjacking, X-Content-Type-Options untuk mencegah MIME sniffing, Referrer-Policy untuk mengontrol informasi referer) dengan setiap rule memiliki severity level (CRITICAL, HIGH, MEDIUM, LOW). `check_mixed_content()` menggunakan `html5ever` parser untuk mendeteksi HTTP resources pada HTTPS pages yang dapat menyebabkan security warnings. `validate_redirects()` mendeteksi open redirect vulnerabilities dan redirect chain issues yang dapat dieksploitasi untuk phishing attacks.
+
+---
+
+### **6. `engine.rs` (Rust)**
+
+**Tugas:** Mesin utama yang menghubungkan dan mengelola semua komponen core.
+
+**Tujuan:** File ini adalah jantung dari sistem yang mengelola dependency injection antar komponen menggunakan `EngineBuilder` pattern dengan methods `with_scanner()`, `with_analyzer()`, `with_orchestrator()`, `build() -> Engine`. Menyediakan event bus untuk komunikasi antar modul melalui `mpsc::channel` dengan priority queue (high priority untuk scan commands, medium untuk analysis, low untuk reporting). Mengelola lifecycle dari setiap komponen (startup, running, shutdown) dengan `State` enum (Uninitialized, Initializing, Running, Pausing, Paused, ShuttingDown, Shutdown). Implementasi `start()` yang menginisialisasi semua komponen dalam urutan yang tepat (scanner -> analyzer -> orchestrator) dan membuat thread pool dengan `tokio::runtime` untuk non-blocking operations. Implementasi `shutdown()` dengan graceful shutdown signal: mengirim `SIGTERM` ke semua components, menunggu 30 detik untuk pending operations selesai, dan force stop jika timeout tercapai. Mengimplementasikan `event_loop()` yang memproses events dari semua components melalui `event_bus`.
+
+---

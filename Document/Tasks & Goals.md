@@ -237,6 +237,10 @@ Explanation of each file in the core folder section of the directory architectur
 
 ---
 
+Indonesian:
+
+---
+
 ## 📁 **`core/` - INTI SISTEM**
 
 ---
@@ -289,9 +293,7 @@ Explanation of each file in the core folder section of the directory architectur
 
 ---
 
-Explanation of each file in the core folder section of the directory architecture:Explanation of each file in the modules folder, starting from all the contents of the first folder, namely the network from the directory architecture:
-
-Here is the translation of everything into English without any changes:
+Explanation of the network section modules folder:
 
 ---
 
@@ -350,6 +352,8 @@ Here is the translation of everything into English without any changes:
 
 Indonesian:
 
+---
+
 ### **📂 `modules/network/` - Pemindaian Jaringan**
 
 #### **1. `dns_enum.rs` (Rust)**
@@ -398,3 +402,93 @@ Indonesian:
 **Tujuan:** File ini menggunakan `rustls` dengan `ClientConfig::builder()` untuk membuat TLS connection ke target host dan port. Handshake dilakukan dengan `ServerName::try_from(host)`, kemudian setelah handshake berhasil, ekstrak certificate chain dari `server_cert_verifier`. Gunakan `webpki` untuk parse certificate dan ekstrak informasi: `subject` (Common Name/CN), `issuer` (Certificate Authority yang menerbitkan), `validity` (not_before dan not_after dates), `subject_alt_names` (SAN untuk semua domain yang dilindungi), `key_usage` (digitalSignature, keyEncipherment), `extended_key_usage` (serverAuth, clientAuth), `signature_algorithm` (RSA-SHA256, ECDSA-SHA256), `public_key` (type RSA atau ECDSA dan key size). Implementasi `check_weak_ciphers()` dengan list known weak/obsolete ciphers (RC4, 3DES, IDEA, export ciphers). Implementasi `check_protocols()` untuk memeriksa apakah SSLv2, SSLv3, TLSv1.0, TLSv1.1 masih diaktifkan (harusnya disabled karena sudah deprecated). Menghasilkan `CertRating` dengan score berdasarkan panjang key (>=2048 bit untuk RSA, >=256 bit untuk ECDSA), cipher strength (AES-GCM > AES-CBC > RC4), protocol version (TLSv1.3 > TLSv1.2 > TLSv1.1), dan certificate validity (masa berlaku tidak terlalu panjang).
 
 ---
+
+Explanation of the modules folder content section:
+
+---
+
+## 📂 **`modules/content/` - Content Analysis**
+
+#### **1. `html_parser.rs` (Rust)**
+
+**Task:** Parse HTML/DOM structure from the website page in depth.
+
+**Purpose:** This file uses `html5ever::parse_document()` with `RcDom` sink to convert HTML into a DOM tree representation. After parsing, it performs tree traversal with depth-first search to extract all important elements: `title` tags (page title), `h1` through `h6` (headings with hierarchy), all `form` tags with `method` attributes (GET/POST), `action` (target URL), and all `input` fields (name, type, value, placeholder). Extracts all `a` tags with `href` (target URL) and `rel` attributes (nofollow, noopener). Extracts all `script` tags with `src` (external files) and inline content for further analysis. Extracts all `img` tags with `src` (image URL), `alt` (alternative text), `title` (tooltip). Implements `get_text_content()` to extract all visible text for NLP processing. Stores results in `ParsedHtml` struct with all extracted elements in `Vec<Element>` for easy access and analysis by other components.
+
+---
+
+#### **2. `js_analyzer.rs` (Rust)**
+
+**Task:** Analyze JavaScript files to detect vulnerabilities and sensitive information.
+
+**Purpose:** This file uses `oxc` parser or `swc` for parsing JavaScript into Abstract Syntax Tree (AST). Implements AST traversal with visitor pattern to find: `eval()` function calls that can execute arbitrary code (dangerous), `document.write()` that can cause XSS, `innerHTML` assignment that is potentially dangerous, `setTimeout` with string argument, `Function()` constructor, `postMessage` calls. Extracts all string literals that may contain API keys using regex patterns: `/([A-Z0-9]{32,40})/` for AWS keys, `/sk_live_[A-Za-z0-9]{24,32}/` for Stripe keys, `/AIza[0-9A-Za-z\\-_]{35}/` for Google API keys, `/ghp_[A-Za-z0-9]{36}/` for GitHub tokens. Implements `detect_framework()` with pattern matching for jQuery (`$` or `jQuery`), React (`React.createElement` or JSX), Vue (`Vue` or `v-` directives), Angular (`ng-` directives or `Angular`), and other frameworks. Generates `JsReport` with fields: `framework_detected` (list of detected frameworks), `api_keys_found` (exposed API keys), `dangerous_functions` (dangerous functions with line and column), `library_versions` (versions of libraries used), `obfuscation_detected` (whether code is obfuscated).
+
+---
+
+#### **3. `css_extractor.rs` (Rust)**
+
+**Task:** Extract and analyze Cascading Style Sheets (CSS) used by the website.
+
+**Purpose:** This file uses `cssparser` to parse CSS into AST (Abstract Syntax Tree). Extracts all `@import` (external CSS files being imported), `@font-face` (custom fonts used), `@media` (media queries for responsive design), `@keyframes` (animations). Extracts all selectors and declarations (properties and CSS values). Identifies CSS frameworks with pattern matching: Bootstrap (`.container`, `.row`, `.col-*`, `.btn`, `.navbar`), Tailwind (`tw-*` or `@tailwind` directives), Foundation (`row`, `small-*`, `large-*`, `.button`, `.top-bar`), Bulma (`.columns`, `.column`, `.button`, `.navbar`). Implements `detect_unused_css()` by comparing selectors with class names present in the scraped HTML to identify unused CSS that can be removed. Implements `find_css_variables()` to extract all custom properties (--*) for theme analysis and brand consistency. Generates `CssReport` with total rules, total selectors, detected frameworks, unused CSS percentage, and list of CSS variables.
+
+---
+
+#### **4. `meta_extractor.py` (Python)**
+
+**Task:** Extract all metadata from the website for SEO and social media analysis.
+
+**Purpose:** This file uses `BeautifulSoup` for HTML parsing and extracts all `meta` tags with `name` or `property` attributes. For `Open Graph` tags (og:title, og:description, og:image, og:url, og:type, og:site_name) used for social media sharing on Facebook, LinkedIn, and other platforms, extract from `property` attribute. For `Twitter Cards` (twitter:card, twitter:site, twitter:creator, twitter:description, twitter:image) used for Twitter preview, extract from `name` attribute. Implements `find_canonical_url()` to find the canonical link tag indicating the primary URL to avoid duplicate content in SEO. Implements `check_robots_txt()` with request to `/robots.txt` (follow redirects), parse with regex to find disallow rules that block crawlers. Implements `find_sitemap()` in robots.txt or `sitemap.xml` to find the XML sitemap listing all pages. Generates `MetaReport` with dictionary of all found meta tags, canonical URL, robots.txt status, sitemap URL, and language detection.
+
+---
+
+#### **5. `link_graph.rs` (Rust)**
+
+**Task:** Build and analyze the relationship graph of links within the website.
+
+**Purpose:** This file uses `BFS` (Breadth-First Search) traversal to explore the website from start_url up to depth_limit (default 3). For each visited page, extracts all `href` links using `html_parser`. Normalizes URLs with `Url::parse()` relative to base to obtain absolute URLs. Classifies links as `internal` (same domain) or `external` (different domain). For each link, adds an edge in the graph: `graph.add_edge(current_url, target_url)`. Implements `find_broken_links()` with concurrent HEAD requests using `reqwest` `Client::head()`, timeout 5s, and records status codes (404, 410 for broken). Implements `detect_redirect_chains()` by following redirects up to max 10, records the chain to detect unnecessary redirects (e.g., /a -> /b -> /c -> /final). Implements `analyze_anchor_text()` for each link, extracts anchor text, and performs frequency analysis to detect SEO patterns (over-optimization, keyword stuffing). Generates `LinkReport` with total internal links, external links, broken links, redirect chains, and anchor text analysis.
+
+---
+
+Indonesian:
+
+---
+
+## 📂 **`modules/content/` - Analisis Konten**
+
+#### **1. `html_parser.rs` (Rust)**
+
+**Tugas:** Mem-parsing struktur HTML/DOM dari halaman website secara mendalam.
+
+**Tujuan:** File ini menggunakan `html5ever::parse_document()` dengan `RcDom` sink untuk mengubah HTML menjadi DOM tree representation. Setelah parsing, melakukan tree traversal dengan depth-first search untuk mengekstrak semua elemen penting: `title` tags (judul halaman), `h1` sampai `h6` (heading dengan hierarchy), semua `form` tags dengan atribut `method` (GET/POST), `action` (URL tujuan), dan semua `input` fields (name, type, value, placeholder). Mengekstrak semua `a` tags dengan `href` (URL tujuan) dan `rel` attributes (nofollow, noopener). Mengekstrak semua `script` tags dengan `src` (file eksternal) dan inline content untuk dianalisis lebih lanjut. Mengekstrak semua `img` tags dengan `src` (URL gambar), `alt` (teks alternatif), `title` (tooltip). Implementasi `get_text_content()` untuk mengekstrak semua teks visible untuk NLP processing. Menyimpan hasil dalam `ParsedHtml` struct dengan semua extracted elements dalam `Vec<Element>` untuk memudahkan akses dan analisis oleh komponen lain.
+
+---
+
+#### **2. `js_analyzer.rs` (Rust)**
+
+**Tugas:** Menganalisis file JavaScript untuk mendeteksi kerentanan dan informasi sensitif.
+
+**Tujuan:** File ini menggunakan `oxc` parser atau `swc` untuk parsing JavaScript ke Abstract Syntax Tree (AST). Implementasi AST traversal dengan visitor pattern untuk menemukan: function calls ke `eval()` yang dapat mengeksekusi kode arbitrer (dangerous), `document.write()` yang dapat menyebabkan XSS, `innerHTML` assignment yang berpotensi berbahaya, `setTimeout` dengan string argument, `Function()` constructor, `postMessage` calls. Ekstrak semua string literals yang mungkin mengandung API keys menggunakan regex pattern: `/([A-Z0-9]{32,40})/` untuk AWS keys, `/sk_live_[A-Za-z0-9]{24,32}/` untuk Stripe keys, `/AIza[0-9A-Za-z\\-_]{35}/` untuk Google API keys, `/ghp_[A-Za-z0-9]{36}/` untuk GitHub tokens. Implementasi `detect_framework()` dengan pattern matching untuk jQuery (`$` atau `jQuery`), React (`React.createElement` atau JSX), Vue (`Vue` atau `v-` directives), Angular (`ng-` directives atau `Angular`), dan framework lainnya. Menghasilkan `JsReport` dengan fields: `framework_detected` (list framework yang ditemukan), `api_keys_found` (API keys yang terekspos), `dangerous_functions` (fungsi berbahaya dengan line dan column), `library_versions` (versi library yang digunakan), `obfuscation_detected` (apakah kode di-obfuscate).
+
+---
+
+#### **3. `css_extractor.rs` (Rust)**
+
+**Tugas:** Mengekstrak dan menganalisis Cascading Style Sheets (CSS) yang digunakan website.
+
+**Tujuan:** File ini menggunakan `cssparser` untuk parse CSS ke AST (Abstract Syntax Tree). Mengekstrak semua `@import` (file CSS eksternal yang diimpor), `@font-face` (custom fonts yang digunakan), `@media` (media queries untuk responsive design), `@keyframes` (animasi). Mengekstrak semua selectors dan declarations (properti dan nilai CSS). Identifikasi CSS frameworks dengan pattern matching: Bootstrap (`.container`, `.row`, `.col-*`, `.btn`, `.navbar`), Tailwind (`tw-*` atau `@tailwind` directives), Foundation (`row`, `small-*`, `large-*`, `.button`, `.top-bar`), Bulma (`.columns`, `.column`, `.button`, `.navbar`). Implementasi `detect_unused_css()` dengan membandingkan selectors dengan class names yang ada di HTML yang di-scrape untuk mengidentifikasi CSS yang tidak terpakai dan dapat dihapus. Implementasi `find_css_variables()` untuk mengekstrak semua custom properties (--*) untuk theme analysis dan brand consistency. Generate `CssReport` dengan total rules, total selectors, frameworks detected, unused CSS percentage, dan list CSS variables.
+
+---
+
+#### **4. `meta_extractor.py` (Python)**
+
+**Tugas:** Mengekstrak semua metadata dari website untuk analisis SEO dan social media.
+
+**Tujuan:** File ini menggunakan `BeautifulSoup` untuk parsing HTML dan mengekstrak semua `meta` tags dengan attribute `name` atau `property`. Untuk `Open Graph` tags (og:title, og:description, og:image, og:url, og:type, og:site_name) yang digunakan untuk social media sharing di Facebook, LinkedIn, dan platform lainnya, ekstrak dari `property` attribute. Untuk `Twitter Cards` (twitter:card, twitter:site, twitter:creator, twitter:description, twitter:image) yang digunakan untuk Twitter preview, ekstrak dari `name` attribute. Implementasi `find_canonical_url()` untuk menemukan canonical link tag yang menunjukkan URL utama untuk menghindari duplicate content di SEO. Implementasi `check_robots_txt()` dengan request ke `/robots.txt` (ikuti redirects), parse dengan regex untuk menemukan disallow rules yang memblokir crawler. Implementasi `find_sitemap()` di robots.txt atau `sitemap.xml` untuk menemukan XML sitemap yang mendaftar semua halaman. Generate `MetaReport` dengan dictionary dari semua meta tags yang ditemukan, canonical URL, robots.txt status, sitemap URL, dan language detection.
+
+---
+
+#### **5. `link_graph.rs` (Rust)**
+
+**Tugas:** Membangun dan menganalisis graph hubungan antar link di website.
+
+**Tujuan:** File ini menggunakan `BFS` (Breadth-First Search) traversal untuk menjelajahi website dari start_url hingga depth_limit (default 3). Untuk setiap halaman yang dikunjungi, ekstrak semua `href` links menggunakan `html_parser`. Normalisasi URL dengan `Url::parse()` relative to base untuk mendapatkan URL absolut. Klasifikasikan link sebagai `internal` (same domain) atau `external` (different domain). Untuk setiap link, tambahkan edge di graph: `graph.add_edge(current_url, target_url)`. Implementasi `find_broken_links()` dengan concurrent HEAD requests menggunakan `reqwest` `Client::head()`, timeout 5s, dan record status codes (404, 410 untuk broken). Implementasi `detect_redirect_chains()` dengan follow redirects sampai max 10, catat chain untuk mendeteksi redirect yang tidak perlu (misal: /a -> /b -> /c -> /final). Implementasi `analyze_anchor_text()` untuk setiap link, ekstrak anchor text, dan lakukan frequency analysis untuk mendeteksi SEO patterns (over-optimization, keyword stuffing). Generate `LinkReport` dengan total internal links, external links, broken links, redirect chains, dan anchor text analysis.

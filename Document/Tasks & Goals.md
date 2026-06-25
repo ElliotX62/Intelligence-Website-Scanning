@@ -1107,3 +1107,572 @@ l## 📂 **`modules/infrastructure/` - Infrastruktur & Hosting**
 
 ---
 
+**utils folder explanation:**
+
+---
+
+## 📂 **`utils/` - UTILITY**
+
+---
+
+#### **1. `request_handler.rs` (Rust)**
+
+**Task:** Manage all HTTP requests to the internet with session pooling, retry mechanism, and timeout management.
+
+**Purpose:** This file is the HTTP client handler that manages all HTTP communication to the internet. Implements `send_request(request: Request) -> Result<Response>` with session reuse for HTTP/1.1 keep-alive using `reqwest::Client` with connection pooling to avoid connection creation overhead for each request. Implements `retry_with_backoff()` with configuration: `max_attempts=3`, `initial_backoff=1s`, `multiplier=2`, `jitter=0.1` (to avoid thundering herd problem). Status codes that are retried: 408 (Request Timeout), 429 (Too Many Requests), 500 (Internal Server Error), 502 (Bad Gateway), 503 (Service Unavailable), 504 (Gateway Timeout). Implements `handle_redirects()` with maximum 10 redirects to prevent infinite redirect loops. Implements `set_timeout()` with `tokio::time::timeout` per request: connection timeout 5s, read timeout 10s, write timeout 5s. Implements `cookie_jar()` with `CookieStore` that persists across requests within a session. Implements `custom_headers()` to add custom headers (User-Agent, Accept-Language, Accept-Encoding) according to configuration. Implements `handle_compression()` to support gzip and brotli compression to save bandwidth.
+
+---
+
+#### **2. `proxy_manager.go` (Go)**
+
+**Task:** Manage proxies for stealth scanning with rotation, validation, and anonymity tracking.
+
+**Purpose:** This file manages the proxy pool for performing scanning without being detected. Implements `GetProxy() -> Proxy` with round-robin rotation to distribute load evenly across all proxies in the pool. Implements `ValidateProxy(proxy Proxy) -> bool` with test connection to `httpbin.org/ip` or `api.ipify.org`, timeout 5s, to ensure the proxy is active and working before use. Implements `MarkBadProxy(proxy Proxy)` to remove failed proxies from the pool (if a proxy fails 3 consecutive times, it is permanently removed). Implements `RefreshProxies()` to periodically re-validate proxies (every 5 minutes) and remove dead proxies. Proxy types supported: `HTTP`, `HTTPS`, `SOCKS5` (using `golang.org/x/net/proxy` for SOCKS5). Implements `anonymity_level_tracking()`: measures anonymity level of each proxy based on response headers (X-Forwarded-For, Via) - transparent (sends real IP), anonymous (hides IP), elite (hides all proxy traces). Implements `geolocation_routing()`: selects proxies based on target geolocation to reduce latency.
+
+---
+
+#### **3. `rate_limiter.rs` (Rust)**
+
+**Task:** Manage rate limiting using token bucket algorithm to prevent abuse and avoid detection.
+
+**Purpose:** This file implements the token bucket algorithm with atomic operations for thread safety. Struct `RateLimiter` with fields: `tokens: AtomicUsize` (current tokens), `capacity: usize` (maximum capacity), `fill_rate: usize` (tokens per second), `last_refill: AtomicUsize` (last refill timestamp). `Allow()` method: atomically decrements tokens (using `fetch_sub`), if tokens > 0 returns true (allow request), if tokens == 0 returns false (rate limited). `Refill()` called every second: `tokens = min(capacity, tokens + fill_rate)`. Implements `PerDomainLimiter` with `DashMap<String, RateLimiter>` to provide different rate limits for each target domain (e.g., 10 req/sec for domain, 50 req/sec for IP, 100 req/sec for URL). Implements `SlidingWindowCounter` for time-based rate limiting: stores timestamps in `VecDeque`, checks count in last N seconds (e.g., 100 requests in last 60 seconds). Implements `adaptive_rate_limiting()` that adjusts rate limit based on response time and error rate: if many 429 errors (Too Many Requests), decrease rate; if response time is fast, increase rate. Implements `burst_capacity()` to accommodate short request bursts (e.g., 10 requests in 1 second).
+
+---
+
+#### **4. `concurrency_manager.rs` (Rust)**
+
+**Task:** Manage concurrency with async/await, thread pooling, and semaphore-based resource control.
+
+**Purpose:** This file manages all concurrent operations in the system. Struct `ConcurrencyManager` with fields: `runtime: tokio::Runtime` (Tokio runtime for async operations), `thread_pool: ThreadPool` (Rayon thread pool for blocking operations), `semaphore: Arc<Semaphore>` (to limit access to limited resources), `task_counter: AtomicUsize` (to track active task count). Implements `spawn_task<F: Future>(future: F)` with `tokio::spawn` for non-blocking async tasks. Implements `run_in_thread<T: Send + 'static>(job: impl FnOnce() -> T + Send + 'static)` for blocking operations in thread pool (using `rayon::spawn()`). Implements `semaphore_control()`: `acquire()` for blocking tasks (waits if no slots available), `release()` to signal completion (frees a slot). Implements `graceful_shutdown()`: `signal::ctrl_c()` to catch SIGINT, waits for tasks to complete with 30s timeout, force shutdown if timeout (cancels remaining tasks). Implements `task_priority()`: high priority tasks (scan commands) receive resources first, low priority tasks (report generation) are deferred if resources are limited. Implements `load_shedding()`: if task queue exceeds threshold (1000 tasks), rejects new tasks with error "system overloaded".
+
+---
+
+#### **5. `logging_system.rs` (Rust)**
+
+**Task:** Provide structured logging system with multiple outputs and log levels.
+
+**Purpose:** This file manages all logging in the system. Struct `LoggingSystem` with fields: `logger: Logger` (main logger), `file_appender: RollingFileAppender` (file logging), `remote_appender: Option<RemoteAppender>` (remote logging). Implements `log(level: LogLevel, message: &str, context: &Context)` with structured JSON format: `{timestamp, level, message, context: {component, request_id, user_id, session_id, ip, duration}}`. Log levels: DEBUG (detailed debugging), INFO (general information), WARN (warnings), ERROR (recoverable errors), FATAL (critical errors causing shutdown). Implements `RollingFileAppender`: rotates when file size > 10MB, keeps 5 files (total 50MB), compresses old files with `gzip` to save disk space. Implements `RemoteAppender`: sends logs to remote server via UDP (for performance) or HTTP (for reliability), with batching (flush every 100 entries or every 5 seconds). Implements `Context::new()` to create log context with automatic `span` from `tracing` for correlation across requests. Implements `mask_sensitive_data()` to mask passwords, API keys, tokens in logs (replace with "***"). Implements `structured_query()` to query logs with filters (level, component, time range) using JSON query.
+
+---
+
+#### **6. `encryption.rs` (Rust)**
+
+**Task:** Provide data encryption and decryption for storage and communication security.
+
+**Purpose:** This file implements multiple encryption algorithms for various needs. Struct `Encryption` with fields: `algorithm: EncryptionAlgorithm` (AES-256-GCM, ChaCha20-Poly1305, RSA), `key: [u8; 32]` for AES-256, `iv: [u8; 12]` for GCM (12 bytes recommended). Implements `encrypt_aes_256(data: &[u8]) -> Result<Vec<u8>>` using `AES-256-GCM` from `aes-gcm` crate: generates random nonce (12 bytes) for each encryption for security, returns ciphertext + nonce + tag (16 bytes) in one vec. Implements `decrypt_aes_256(ciphertext: &[u8]) -> Result<Vec<u8>>`: extracts nonce, ciphertext, tag, verifies authentication tag, decrypts if valid. Implements `rsa_encrypt(public_key: &RsaPublicKey, data: &[u8]) -> Result<Vec<u8>>` with OAEP padding (Optimal Asymmetric Encryption Padding) for semantic security. Implements `rsa_decrypt(private_key: &RsaPrivateKey, data: &[u8]) -> Result<Vec<u8>>` to decrypt RSA-encrypted data. Implements `derive_key(password: &str, salt: &[u8]) -> [u8; 32]` using `PBKDF2` with 100,000 iterations, SHA-256 for key derivation from password. Implements `generate_secure_random()` using `rand::rngs::OsRng` to generate cryptographically secure random numbers for keys, nonces, salts.
+
+---
+
+#### **7. `hash_generator.rs` (Rust)**
+
+**Task:** Provide hash functions for checksums, integrity verification, and password hashing.
+
+**Purpose:** This file implements various hash algorithms. Struct `HashGenerator` with fields: `algorithm: HashAlgorithm`. Implements `hash_md5(data: &[u8]) -> [u8; 16]` using `md5` crate for fast checksums (not secure for security). Implements `hash_sha1(data: &[u8]) -> [u8; 20]` using `sha1` crate (not secure for security, only for legacy compatibility). Implements `hash_sha256(data: &[u8]) -> [u8; 32]` using `sha2` crate for integrity verification (secure). Implements `hash_sha3_256(data: &[u8]) -> [u8; 32]` using `sha3` crate for more modern and secure hashing. Implements `hash_bcrypt(password: &str) -> Result<String>` using `bcrypt` crate with cost factor 12 (balance between security and performance) for password hashing. Implements `hash_hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32]` for message authentication using HMAC-SHA256. Implements `hash_argon2id(password: &str) -> Result<String>` using `argon2` crate with Argon2id (memory-hard algorithm) for password hashing that is more secure than bcrypt. Implements `hash_file(path: &Path) -> Result<String>` to compute hash of a file (SHA-256) for integrity verification. Implements `verify_integrity(data: &[u8], expected_hash: &str) -> bool` to verify data integrity against expected hash.
+
+---
+
+#### **8. `validator_utils.rs` (Rust)**
+
+**Task:** Provide validation functions for various data types and input sanitization.
+
+**Purpose:** This file implements various validation functions. Struct `ValidatorUtils` with fields: `email_re: Regex` (RFC 5322 compliant email regex), `url_re: Regex` (URL validation), `ip_re: Regex` (IPv4 and IPv6), `domain_re: Regex` (domain name validation). Implements `validate_email(email: &str) -> bool` with RFC 5322 compliant regex to validate email format (local-part@domain). Implements `validate_url(url: &str) -> bool` with parsing using `url::Url` to ensure URL has scheme (http/https) and valid host. Implements `validate_ip(ip: &str) -> bool` with `std::net::IpAddr` parse for IPv4 and IPv6. Implements `validate_domain(domain: &str) -> bool` with DNS label rules (label length 1-63, total length 253, allowed characters a-z, 0-9, hyphen) and TLD validation. Implements `sanitize_input(input: &str) -> String` for HTML escaping (replace <, >, &, ", ' with HTML entities) and SQL injection prevention (escape single quotes). Implements `validate_port(port: u16)` to ensure port is within valid range (1-65535). Implements `validate_path(path: &str)` to ensure path does not contain traversal attacks (`../`). Implements `validate_content_type(content_type: &str)` to validate MIME type. Implements `validate_encoding(encoding: &str)` to validate character encoding.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`utils/` - UTILITY**
+
+---
+
+#### **1. `request_handler.rs` (Rust)**
+
+**Tugas:** Mengelola semua HTTP request ke internet dengan session pooling, retry mechanism, dan timeout management.
+
+**Tujuan:** File ini adalah HTTP client handler yang mengelola semua komunikasi HTTP ke internet. Implementasi `send_request(request: Request) -> Result<Response>` dengan session reuse untuk HTTP/1.1 keep-alive menggunakan `reqwest::Client` dengan connection pooling untuk menghindari overhead pembuatan koneksi baru setiap request. Implementasi `retry_with_backoff()` dengan konfigurasi: `max_attempts=3`, `initial_backoff=1s`, `multiplier=2`, `jitter=0.1` (untuk menghindari thundering herd problem). Status codes yang di-retry: 408 (Request Timeout), 429 (Too Many Requests), 500 (Internal Server Error), 502 (Bad Gateway), 503 (Service Unavailable), 504 (Gateway Timeout). Implementasi `handle_redirects()` dengan batas maksimum redirect 10 untuk mencegah infinite redirect loops. Implementasi `set_timeout()` dengan `tokio::time::timeout` per request: connection timeout 5s, read timeout 10s, write timeout 5s. Implementasi `cookie_jar()` dengan `CookieStore` yang persists across requests dalam session. Implementasi `custom_headers()` untuk menambahkan headers kustom (User-Agent, Accept-Language, Accept-Encoding) sesuai konfigurasi. Implementasi `handle_compression()` untuk mendukung gzip dan brotli compression untuk menghemat bandwidth.
+
+---
+
+#### **2. `proxy_manager.go` (Go)**
+
+**Tugas:** Mengelola proxy untuk scanning stealth dengan rotation, validation, dan anonymity tracking.
+
+**Tujuan:** File ini mengelola pool proxy untuk melakukan scanning tanpa terdeteksi. Implementasi `GetProxy() -> Proxy` dengan round-robin rotation untuk mendistribusikan beban secara merata ke semua proxy dalam pool. Implementasi `ValidateProxy(proxy Proxy) -> bool` dengan test connection ke `httpbin.org/ip` atau `api.ipify.org`, timeout 5s, untuk memastikan proxy aktif dan bekerja sebelum digunakan. Implementasi `MarkBadProxy(proxy Proxy)` untuk menghapus proxy yang gagal dari pool (jika proxy gagal 3 kali berturut-turut, dihapus permanen). Implementasi `RefreshProxies()` untuk periodically re-validate proxies (every 5 minutes) dan menghapus proxy yang mati. Proxy types supported: `HTTP`, `HTTPS`, `SOCKS5` (menggunakan `golang.org/x/net/proxy` untuk SOCKS5). Implementasi `anonymity_level_tracking()`: mengukur tingkat anonimitas setiap proxy berdasarkan response headers (X-Forwarded-For, Via) - transparent (mengirim IP asli), anonymous (menyembunyikan IP), elite (menyembunyikan semua proxy traces). Implementasi `geolocation_routing()`: memilih proxy berdasarkan geolokasi target untuk mengurangi latency.
+
+---
+
+#### **3. `rate_limiter.rs` (Rust)**
+
+**Tugas:** Mengelola rate limiting menggunakan token bucket algorithm untuk mencegah abuse dan menghindari detection.
+
+**Tujuan:** File ini mengimplementasikan token bucket algorithm dengan atomic operations untuk thread safety. Struct `RateLimiter` dengan fields: `tokens: AtomicUsize` (token saat ini), `capacity: usize` (kapasitas maksimum), `fill_rate: usize` (jumlah token per detik), `last_refill: AtomicUsize` (timestamp refill terakhir). `Allow()` method: atomically decrement tokens (menggunakan `fetch_sub`), jika tokens > 0 return true (allow request), jika tokens == 0 return false (rate limited). `Refill()` called every second: `tokens = min(capacity, tokens + fill_rate)`. Implementasi `PerDomainLimiter` dengan `DashMap<String, RateLimiter>` untuk memberikan rate limit yang berbeda untuk setiap domain target (contoh: 10 req/detik untuk domain, 50 req/detik untuk IP, 100 req/detik untuk URL). Implementasi `SlidingWindowCounter` untuk rate limiting berbasis waktu: store timestamps in `VecDeque`, check count in last N seconds (contoh: 100 requests in last 60 seconds). Implementasi `adaptive_rate_limiting()` yang menyesuaikan rate limit berdasarkan response time dan error rate: jika banyak error 429 (Too Many Requests), turunkan rate; jika response time cepat, naikkan rate. Implementasi `burst_capacity()` untuk mengakomodasi lonjakan request sesaat (misal: 10 requests in 1 second).
+
+---
+
+#### **4. `concurrency_manager.rs` (Rust)**
+
+**Tugas:** Mengelola konkurensi dengan async/await, thread pooling, dan semaphore-based resource control.
+
+**Tujuan:** File ini mengelola semua operasi konkuren dalam sistem. Struct `ConcurrencyManager` dengan fields: `runtime: tokio::Runtime` (Tokio runtime untuk async operations), `thread_pool: ThreadPool` (Rayon thread pool untuk blocking operations), `semaphore: Arc<Semaphore>` (untuk membatasi akses ke resource terbatas), `task_counter: AtomicUsize` (untuk tracking jumlah task aktif). Implementasi `spawn_task<F: Future>(future: F)` dengan `tokio::spawn` untuk async tasks yang non-blocking. Implementasi `run_in_thread<T: Send + 'static>(job: impl FnOnce() -> T + Send + 'static)` untuk blocking operations di thread pool (menggunakan `rayon::spawn()`). Implementasi `semaphore_control()`: `acquire()` untuk blocking task (menunggu jika tidak ada slot available), `release()` untuk signal completion (membebaskan slot). Implementasi `graceful_shutdown()`: `signal::ctrl_c()` untuk menangkap SIGINT, wait for tasks to complete dengan timeout 30s, force shutdown jika timeout (cancel remaining tasks). Implementasi `task_priority()`: high priority tasks (scan commands) mendapat resource terlebih dahulu, low priority tasks (report generation) ditunda jika resource terbatas. Implementasi `load_shedding()`: jika task queue melebihi threshold (1000 tasks), reject new tasks dengan error "system overloaded".
+
+---
+
+#### **5. `logging_system.rs` (Rust)**
+
+**Tugas:** Menyediakan sistem logging terstruktur dengan multiple outputs dan log levels.
+
+**Tujuan:** File ini mengelola semua logging dalam sistem. Struct `LoggingSystem` dengan fields: `logger: Logger` (main logger), `file_appender: RollingFileAppender` (file logging), `remote_appender: Option<RemoteAppender>` (remote logging). Implementasi `log(level: LogLevel, message: &str, context: &Context)` dengan structured JSON format: `{timestamp, level, message, context: {component, request_id, user_id, session_id, ip, duration}}`. Log levels: DEBUG (detail debugging), INFO (informasi umum), WARN (peringatan), ERROR (error yang bisa dipulihkan), FATAL (error kritis yang menyebabkan shutdown). Implementasi `RollingFileAppender`: rotate when file size > 10MB, keep 5 files (total 50MB), compress old files with `gzip` untuk menghemat disk space. Implementasi `RemoteAppender`: send logs to remote server via UDP (untuk performa) atau HTTP (untuk reliability), with batching (flush every 100 entries atau every 5 seconds). Implementasi `Context::new()` untuk create log context dengan automatic `span` dari `tracing` untuk correlation across requests. Implementasi `mask_sensitive_data()` untuk masking password, API keys, tokens dalam log (replace with "***"). Implementasi `structured_query()` untuk query logs dengan filter (level, component, time range) menggunakan JSON query.
+
+---
+
+#### **6. `encryption.rs` (Rust)**
+
+**Tugas:** Menyediakan enkripsi dan dekripsi data untuk keamanan storage dan communication.
+
+**Tujuan:** File ini mengimplementasikan multiple encryption algorithms untuk berbagai kebutuhan. Struct `Encryption` dengan fields: `algorithm: EncryptionAlgorithm` (AES-256-GCM, ChaCha20-Poly1305, RSA), `key: [u8; 32]` untuk AES-256, `iv: [u8; 12]` untuk GCM (12 bytes recommended). Implementasi `encrypt_aes_256(data: &[u8]) -> Result<Vec<u8>>` menggunakan `AES-256-GCM` from `aes-gcm` crate: generate random nonce (12 bytes) untuk setiap encryption untuk keamanan, return ciphertext + nonce + tag (16 bytes) dalam satu vec. Implementasi `decrypt_aes_256(ciphertext: &[u8]) -> Result<Vec<u8>>`: extract nonce, ciphertext, tag, verify authentication tag, decrypt if valid. Implementasi `rsa_encrypt(public_key: &RsaPublicKey, data: &[u8]) -> Result<Vec<u8>>` dengan OAEP padding (Optimal Asymmetric Encryption Padding) untuk keamanan semantic. Implementasi `rsa_decrypt(private_key: &RsaPrivateKey, data: &[u8]) -> Result<Vec<u8>>` untuk mendekripsi data yang dienkripsi dengan RSA. Implementasi `derive_key(password: &str, salt: &[u8]) -> [u8; 32]` menggunakan `PBKDF2` dengan 100,000 iterations, SHA-256 untuk key derivation from password. Implementasi `generate_secure_random()` menggunakan `rand::rngs::OsRng` untuk generate cryptographically secure random numbers untuk keys, nonces, salts.
+
+---
+
+#### **7. `hash_generator.rs` (Rust)**
+
+**Tugas:** Menyediakan fungsi hash untuk checksum, integrity verification, dan password hashing.
+
+**Tujuan:** File ini mengimplementasikan berbagai algoritma hash. Struct `HashGenerator` dengan fields: `algorithm: HashAlgorithm`. Implementasi `hash_md5(data: &[u8]) -> [u8; 16]` menggunakan `md5` crate untuk checksum cepat (tidak aman untuk security). Implementasi `hash_sha1(data: &[u8]) -> [u8; 20]` menggunakan `sha1` crate (tidak aman untuk security, hanya untuk legacy compatibility). Implementasi `hash_sha256(data: &[u8]) -> [u8; 32]` menggunakan `sha2` crate untuk integrity verification (secure). Implementasi `hash_sha3_256(data: &[u8]) -> [u8; 32]` menggunakan `sha3` crate untuk hashing yang lebih modern dan aman. Implementasi `hash_bcrypt(password: &str) -> Result<String>` menggunakan `bcrypt` crate dengan cost factor 12 (balance antara security dan performance) untuk password hashing. Implementasi `hash_hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32]` untuk message authentication menggunakan HMAC-SHA256. Implementasi `hash_argon2id(password: &str) -> Result<String>` menggunakan `argon2` crate dengan Argon2id (memory-hard algorithm) untuk password hashing yang lebih aman dari bcrypt. Implementasi `hash_file(path: &Path) -> Result<String>` untuk menghitung hash dari file (SHA-256) untuk integrity verification. Implementasi `verify_integrity(data: &[u8], expected_hash: &str) -> bool` untuk memverifikasi integritas data dengan expected hash.
+
+---
+
+#### **8. `validator_utils.rs` (Rust)**
+
+**Tugas:** Menyediakan fungsi validasi untuk berbagai tipe data dan input sanitization.
+
+**Tujuan:** File ini mengimplementasikan berbagai fungsi validasi. Struct `ValidatorUtils` dengan fields: `email_re: Regex` (RFC 5322 compliant email regex), `url_re: Regex` (URL validation), `ip_re: Regex` (IPv4 dan IPv6), `domain_re: Regex` (domain name validation). Implementasi `validate_email(email: &str) -> bool` dengan RFC 5322 compliant regex untuk memvalidasi format email (local-part@domain). Implementasi `validate_url(url: &str) -> bool` dengan parsing menggunakan `url::Url` untuk memastikan URL memiliki scheme (http/https) dan host yang valid. Implementasi `validate_ip(ip: &str) -> bool` dengan `std::net::IpAddr` parse untuk IPv4 dan IPv6. Implementasi `validate_domain(domain: &str) -> bool` dengan DNS label rules (panjang label 1-63, total panjang 253, karakter yang diizinkan a-z, 0-9, hyphen) dan TLD validation. Implementasi `sanitize_input(input: &str) -> String` untuk HTML escaping (replace <, >, &, ", ' dengan HTML entities) dan SQL injection prevention (escape single quotes). Implementasi `validate_port(port: u16)` untuk memastikan port dalam range yang valid (1-65535). Implementasi `validate_path(path: &str)` untuk memastikan path tidak mengandung traversal attacks (`../`). Implementasi `validate_content_type(content_type: &str)` untuk memvalidasi MIME type. Implementasi `validate_encoding(encoding: &str)` untuk memvalidasi character encoding.
+
+---
+
+**config folder explanation:**
+
+---
+
+## 📂 **`config/` - CONFIGURATION**
+
+---
+
+#### **1. `settings.rs` (Rust)**
+
+**Task:** Manage the main system configuration with hierarchical loading from multiple sources.
+
+**Purpose:** This file is the configuration center that loads all global system settings. Struct `Settings` with fields: `database: DatabaseConfig` (host, port, username, password, database name, connection pool size), `redis: RedisConfig` (host, port, password, database index), `api_keys: ApiKeys` (API keys for all integration services), `scanning: ScanningConfig` (default timeout, threads, retry count, profiles), `logging: LoggingConfig` (level, format, rotation, remote forwarding), `environment: Environment` (Development, Testing, Production). Implements `load()` using `config` crate with hierarchy: default values (hardcoded in code) -> config file (`config/settings.{env}.toml`) -> environment variables (prefix `IWS_`). Environment variable mapping: `IWS_DATABASE_URL` -> `database.url`, `IWS_LOG_LEVEL` -> `logging.level`, `IWS_MAX_THREADS` -> `scanning.max_threads`. Implements `validate()` with `validator` crate to check required fields (database.url cannot be empty, api_keys must be filled for enabled services). Implements `reload()` to reload configuration without restarting the application (listens to SIGHUP signal). Implements `export()` to export current configuration to file for debugging.
+
+---
+
+#### **2. `apikeys_template.py` (Python)**
+
+**Task:** Provide template and management for API keys from various third-party services.
+
+**Purpose:** This file is a Python template for storing all API keys required by the system. Class `ApiKeys` with fields: `SHODAN_API_KEY: str` (for Shodan network intelligence), `CENSYS_API_ID: str` and `CENSYS_API_SECRET: str` (for Censys internet scanning), `VIRUSTOTAL_API_KEY: str` (for VirusTotal malware scanning), `ALIENVAULT_API_KEY: str` (for AlienVault OTX threat intelligence), `URLSCAN_API_KEY: str` (for URLScan behavior analysis), `SECURITYTRAILS_API_KEY: str` (for SecurityTrails DNS history), `GREYHAT_API_KEY: str` (for GreyHat Warfare fast access), `GOOGLE_SAFE_BROWSING_KEY: str` (for Google Safe Browsing), `WOT_API_KEY: str` (for Web of Trust). Implements `load_from_env()` which reads from environment variables with prefix `IWS_` (e.g., `IWS_SHODAN_API_KEY`). Implements `validate_keys()` to check key format (length, charset) before use - for example: Shodan API key is 32 alphanumeric characters, VirusTotal key is 64 characters. Implements `get_active_services()` to return list of services that have valid API keys (to determine which services to enable). Implements `mask_keys()` to mask keys in logs (show only first and last 4 characters).
+
+---
+
+#### **3. `user_agents.rs` (Rust)**
+
+**Task:** Provide User-Agent string database for rotation during scanning to avoid detection.
+
+**Purpose:** This file manages the User-Agent database for rotation. Struct `UserAgents` with fields: `agents: Vec<String>` (list of User-Agent strings), `current_index: AtomicUsize` (index for round-robin). Implements `load()`: loads from `user_agents.txt` file (users can add custom User-Agents), falls back to built-in list if file not found. Built-in list includes: Chrome 120-124 (Windows, Mac, Linux), Firefox 120-123 (Windows, Mac, Linux), Safari 17.2 (Mac, iOS), Edge 120-123 (Windows), Opera 106-107 (Windows, Mac), and mobile User-Agents (Android, iOS). Implements `get_random_agent() -> String` with random selection using `rand::thread_rng()` for random distribution. Implements `get_next_agent() -> String` with round-robin rotation for even distribution (each request uses a different User-Agent in rotation). Implements `get_agent_by_platform(platform: &str) -> String` to get platform-specific User-Agent (Windows, Mac, Linux, Android, iOS). Implements `get_agent_by_browser(browser: &str) -> String` to get browser-specific User-Agent (Chrome, Firefox, Safari, Edge, Opera). Implements `refresh()` to reload User-Agent list from file without restart.
+
+---
+
+#### **4. `scanning_profiles.go` (Go)**
+
+**Task:** Define and manage various scanning profiles for different needs.
+
+**Purpose:** This file manages different scanning profiles. Struct `ScanningProfiles` with fields: `Profiles map[string]Profile`. Profile fields: `Threads int` (number of parallel threads), `Timeout int` (timeout per request in seconds), `Delay int` (delay between requests in milliseconds), `MaxPages int` (maximum pages to scan), `FollowRedirects bool` (whether to follow redirects), `RespectRobots bool` (whether to respect robots.txt). Implements `GetProfile(name string) -> Profile` with predefined profiles: `"aggressive"` (Threads=100, Timeout=10, Delay=0, MaxPages=1000, FollowRedirects=true, RespectRobots=false) for fast scanning with high resources. `"moderate"` (Threads=50, Timeout=15, Delay=100, MaxPages=500, FollowRedirects=true, RespectRobots=true) for balanced scanning. `"stealth"` (Threads=10, Timeout=30, Delay=1000, MaxPages=100, FollowRedirects=false, RespectRobots=true) for stealth scanning that is difficult to detect. `"comprehensive"` (Threads=30, Timeout=20, Delay=200, MaxPages=2000, FollowRedirects=true, RespectRobots=false) for in-depth scanning. Implements `CustomProfile` with override fields to create custom profiles. Implements `ValidateProfile()` to ensure profile has valid values (Threads > 0, Timeout > 0, Delay >= 0, MaxPages > 0). Implements `GetProfileRecommendation()` to provide profile recommendation based on target (e.g., banking site -> stealth, testing site -> aggressive).
+
+---
+
+#### **5. `webhook_configs.rs` (Rust)**
+
+**Task:** Configure webhooks for integration with notification platforms.
+
+**Purpose:** This file manages webhook configuration for notifications. Struct `WebhookConfig` with fields: `slack: Option<SlackWebhook>` (Slack configuration), `discord: Option<DiscordWebhook>` (Discord configuration), `telegram: Option<TelegramWebhook>` (Telegram configuration), `custom: Vec<CustomWebhook>` (custom webhook URLs). `SlackWebhook`: `url: String` (webhook URL), `channel: String` (channel name), `username: String` (bot username), `icon_emoji: String` (emoji icon). `DiscordWebhook`: `url: String`, `username: String` (bot username), `avatar_url: String` (avatar URL), `tts: bool` (text-to-speech). `TelegramWebhook`: `bot_token: String` (bot token), `chat_id: String` (chat ID), `parse_mode: String` (HTML/Markdown). `CustomWebhook`: `name: String`, `url: String`, `method: String` (GET/POST), `headers: HashMap<String, String>`, `body_template: String`. Implements `send_webhook(event: WebhookEvent)` with JSON payload, retry mechanism (`max_attempts=3`), timeout 5s. Implements `format_payload()` to format payload according to platform (Slack uses `{"text": "message"}`, Discord uses `{"content": "message"}`, Telegram uses `{"chat_id": id, "text": "message"}`). Implements `test_webhook()` to send test message to all configured webhooks. Implements `get_enabled_webhooks()` to get list of active webhooks.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`config/` - KONFIGURASI**
+
+---
+
+#### **1. `settings.rs` (Rust)**
+
+**Tugas:** Mengelola konfigurasi utama sistem dengan hierarchical loading dari multiple sources.
+
+**Tujuan:** File ini adalah pusat konfigurasi yang memuat semua pengaturan global sistem. Struct `Settings` dengan fields: `database: DatabaseConfig` (host, port, username, password, database name, connection pool size), `redis: RedisConfig` (host, port, password, database index), `api_keys: ApiKeys` (API keys untuk semua layanan integrasi), `scanning: ScanningConfig` (default timeout, threads, retry count, profiles), `logging: LoggingConfig` (level, format, rotation, remote forwarding), `environment: Environment` (Development, Testing, Production). Implementasi `load()` menggunakan `config` crate dengan hierarki: default values (hardcoded in code) -> config file (`config/settings.{env}.toml`) -> environment variables (prefix `IWS_`). Environment variable mapping: `IWS_DATABASE_URL` -> `database.url`, `IWS_LOG_LEVEL` -> `logging.level`, `IWS_MAX_THREADS` -> `scanning.max_threads`. Implementasi `validate()` dengan `validator` crate untuk checking required fields (database.url tidak boleh kosong, api_keys harus diisi untuk services yang diaktifkan). Implementasi `reload()` untuk reload konfigurasi tanpa restart aplikasi (mendengarkan SIGHUP signal). Implementasi `export()` untuk mengekspor konfigurasi saat ini ke file untuk debugging.
+
+---
+
+#### **2. `apikeys_template.py` (Python)**
+
+**Tugas:** Menyediakan template dan manajemen untuk API keys dari berbagai layanan pihak ketiga.
+
+**Tujuan:** File ini adalah template Python untuk menyimpan semua API keys yang diperlukan sistem. Class `ApiKeys` dengan fields: `SHODAN_API_KEY: str` (untuk Shodan network intelligence), `CENSYS_API_ID: str` dan `CENSYS_API_SECRET: str` (untuk Censys internet scanning), `VIRUSTOTAL_API_KEY: str` (untuk VirusTotal malware scanning), `ALIENVAULT_API_KEY: str` (untuk AlienVault OTX threat intelligence), `URLSCAN_API_KEY: str` (untuk URLScan behavior analysis), `SECURITYTRAILS_API_KEY: str` (untuk SecurityTrails DNS history), `GREYHAT_API_KEY: str` (untuk GreyHat Warfare fast access), `GOOGLE_SAFE_BROWSING_KEY: str` (untuk Google Safe Browsing), `WOT_API_KEY: str` (untuk Web of Trust). Implementasi `load_from_env()` yang membaca dari environment variables dengan prefix `IWS_` (contoh: `IWS_SHODAN_API_KEY`). Implementasi `validate_keys()` untuk memeriksa format key (panjang, charset) sebelum digunakan - contoh: Shodan API key panjang 32 karakter alfanumerik, VirusTotal key panjang 64 karakter. Implementasi `get_active_services()` untuk mengembalikan list services yang memiliki API key valid (untuk menentukan service mana yang akan diaktifkan). Implementasi `mask_keys()` untuk masking keys dalam log (tampilkan hanya 4 karakter pertama dan terakhir).
+
+---
+
+#### **3. `user_agents.rs` (Rust)**
+
+**Tugas:** Menyediakan database User-Agent strings untuk rotasi saat scanning untuk menghindari deteksi.
+
+**Tujuan:** File ini mengelola database User-Agent untuk rotasi. Struct `UserAgents` dengan fields: `agents: Vec<String>` (daftar User-Agent strings), `current_index: AtomicUsize` (index untuk round-robin). Implementasi `load()`: load from `user_agents.txt` file (user dapat menambahkan custom User-Agents), fallback to built-in list if file not found. Built-in list mencakup: Chrome 120-124 (Windows, Mac, Linux), Firefox 120-123 (Windows, Mac, Linux), Safari 17.2 (Mac, iOS), Edge 120-123 (Windows), Opera 106-107 (Windows, Mac), dan mobile User-Agents (Android, iOS). Implementasi `get_random_agent() -> String` dengan random selection menggunakan `rand::thread_rng()` untuk distribusi acak. Implementasi `get_next_agent() -> String` dengan round-robin rotation untuk distribusi yang merata (setiap request menggunakan User-Agent berbeda secara bergiliran). Implementasi `get_agent_by_platform(platform: &str) -> String` untuk mendapatkan User-Agent spesifik platform (Windows, Mac, Linux, Android, iOS). Implementasi `get_agent_by_browser(browser: &str) -> String` untuk mendapatkan User-Agent spesifik browser (Chrome, Firefox, Safari, Edge, Opera). Implementasi `refresh()` untuk reload User-Agent list dari file tanpa restart.
+
+---
+
+#### **4. `scanning_profiles.go` (Go)**
+
+**Tugas:** Mendefinisikan dan mengelola berbagai profil scanning untuk berbagai kebutuhan.
+
+**Tujuan:** File ini mengelola profil scanning yang berbeda-beda. Struct `ScanningProfiles` dengan fields: `Profiles map[string]Profile`. Profile fields: `Threads int` (jumlah thread parallel), `Timeout int` (timeout per request dalam detik), `Delay int` (delay antar request dalam milidetik), `MaxPages int` (maksimum halaman yang discan), `FollowRedirects bool` (apakah mengikuti redirects), `RespectRobots bool` (apakah menghormati robots.txt). Implementasi `GetProfile(name string) -> Profile` dengan predefined profiles: `"aggressive"` (Threads=100, Timeout=10, Delay=0, MaxPages=1000, FollowRedirects=true, RespectRobots=false) untuk scanning cepat dengan resource tinggi. `"moderate"` (Threads=50, Timeout=15, Delay=100, MaxPages=500, FollowRedirects=true, RespectRobots=true) untuk scanning balanced. `"stealth"` (Threads=10, Timeout=30, Delay=1000, MaxPages=100, FollowRedirects=false, RespectRobots=true) untuk scanning stealth yang sulit dideteksi. `"comprehensive"` (Threads=30, Timeout=20, Delay=200, MaxPages=2000, FollowRedirects=true, RespectRobots=false) untuk scanning mendalam. Implementasi `CustomProfile` dengan fields override untuk membuat profile kustom. Implementasi `ValidateProfile()` untuk memastikan profile memiliki nilai yang valid (Threads > 0, Timeout > 0, Delay >= 0, MaxPages > 0). Implementasi `GetProfileRecommendation()` untuk memberikan rekomendasi profile berdasarkan target (contoh: banking site -> stealth, testing site -> aggressive).
+
+---
+
+#### **5. `webhook_configs.rs` (Rust)**
+
+**Tugas:** Mengkonfigurasi webhook untuk integrasi dengan platform notifikasi.
+
+**Tujuan:** File ini mengelola konfigurasi webhook untuk notifikasi. Struct `WebhookConfig` dengan fields: `slack: Option<SlackWebhook>` (konfigurasi Slack), `discord: Option<DiscordWebhook>` (konfigurasi Discord), `telegram: Option<TelegramWebhook>` (konfigurasi Telegram), `custom: Vec<CustomWebhook>` (custom webhook URLs). `SlackWebhook`: `url: String` (webhook URL), `channel: String` (channel name), `username: String` (bot username), `icon_emoji: String` (emoji icon). `DiscordWebhook`: `url: String`, `username: String` (bot username), `avatar_url: String` (avatar URL), `tts: bool` (text-to-speech). `TelegramWebhook`: `bot_token: String` (bot token), `chat_id: String` (chat ID), `parse_mode: String` (HTML/Markdown). `CustomWebhook`: `name: String`, `url: String`, `method: String` (GET/POST), `headers: HashMap<String, String>`, `body_template: String`. Implementasi `send_webhook(event: WebhookEvent)` dengan JSON payload, retry mechanism (`max_attempts=3`), timeout 5s. Implementasi `format_payload()` untuk memformat payload sesuai dengan platform (Slack uses `{"text": "message"}`, Discord uses `{"content": "message"}`, Telegram uses `{"chat_id": id, "text": "message"}`). Implementasi `test_webhook()` untuk mengirim test message ke semua webhook yang dikonfigurasi. Implementasi `get_enabled_webhooks()` untuk mendapatkan list webhook yang aktif.
+
+---
+
+**database folder explanation:**
+
+---
+
+## 📂 **`database/` - DATABASE**
+
+---
+
+#### **1. `schema.sql` (SQL)**
+
+**Task:** Define the complete database structure with all tables, relationships, indexes, and constraints.
+
+**Purpose:** This file contains Data Definition Language (DDL) to create all tables required by the system. Defines `users` table: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `username VARCHAR(255) UNIQUE NOT NULL`, `password_hash VARCHAR(255) NOT NULL`, `email VARCHAR(255) UNIQUE NOT NULL`, `role ENUM('admin','user','guest') DEFAULT 'user'`, `created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, `last_login TIMESTAMP`, `is_active BOOLEAN DEFAULT true`. Defines `scan_results` table: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `user_id UUID REFERENCES users(id) ON DELETE CASCADE`, `target_url VARCHAR(2048) NOT NULL`, `scan_profile VARCHAR(50)`, `started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, `completed_at TIMESTAMP`, `status ENUM('pending','active','completed','failed','cancelled') DEFAULT 'pending'`, `result JSONB`, `summary TEXT`, `risk_score DECIMAL(5,2)`. Defines `vulnerabilities` table: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `scan_id UUID REFERENCES scan_results(id) ON DELETE CASCADE`, `cve_id VARCHAR(50)`, `title VARCHAR(255)`, `description TEXT`, `severity ENUM('critical','high','medium','low','info')`, `cvss_score DECIMAL(3,1)`, `cvss_vector VARCHAR(100)`, `affected_component VARCHAR(255)`, `remediation TEXT`, `status ENUM('open','in_progress','fixed','won_fix') DEFAULT 'open'`, `discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, `fixed_at TIMESTAMP`. Defines `agent_states` table: `id SERIAL PRIMARY KEY`, `agent_name VARCHAR(100) NOT NULL`, `state JSONB NOT NULL`, `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`. Defines `configuration` table: `id SERIAL PRIMARY KEY`, `key VARCHAR(255) UNIQUE NOT NULL`, `value JSONB NOT NULL`, `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`. Indexes for query optimization: `scan_results(user_id, started_at)`, `scan_results(status, started_at)`, `vulnerabilities(scan_id, severity)`, `vulnerabilities(cve_id)`, `agent_states(agent_name)`. Foreign key constraints with ON DELETE CASCADE to maintain referential integrity.
+
+---
+
+#### **2. `connection_pool.rs` (Rust)**
+
+**Task:** Manage database connections with connection pooling for optimal performance.
+
+**Purpose:** This file implements connection pooling for the database using `deadpool_postgres` crate. Struct `ConnectionPool` with fields: `pool: Arc<Pool<Postgres>>` (thread-safe connection pool), `config: PoolConfig` (pool configuration). Implements `new(config: PoolConfig)` which creates a connection pool with configuration: `max_size=20` (maximum 20 concurrent connections), `min_idle=5` (minimum 5 idle connections), `timeout=30s` (timeout to acquire connection), `idle_timeout=10m` (idle connections will be closed after 10 minutes). Implements `get_connection() -> Result<PooledConnection>` with `pool.get()` async that returns a connection from the pool or creates a new one if available. Implements `close_all()` for graceful shutdown: acquire all connections (loop until all connections are taken), close them properly. Implements `health_check()`: test query `SELECT 1`, returns true if successful, false if failed. Implements `monitor_pool()` to monitor pool metrics: active connections, idle connections, total connections, waiting requests, and logs warning if pool is near full (>80% utilization). Implements `reset_pool()` to reset pool if connection issues occur (close all connections and create new ones).
+
+---
+
+#### **3. `orm_models.py` (Python)**
+
+**Task:** Define Object-Relational Mapping (ORM) models for database interaction using SQLAlchemy.
+
+**Purpose:** This file uses SQLAlchemy ORM to define database models as Python classes. Class `User(Base)`: `__tablename__ = 'users'`, fields: `id` (UUID), `username` (String), `password_hash` (String), `email` (String), `role` (Enum), `created_at` (DateTime), `last_login` (DateTime), `is_active` (Boolean). Class `ScanResult(Base)`: `__tablename__ = 'scan_results'`, fields: `id` (UUID), `user_id` (UUID with relationship to User), `target_url` (String), `scan_profile` (String), `started_at` (DateTime), `completed_at` (DateTime), `status` (Enum), `result` (JSON), `summary` (String), `risk_score` (Float). Class `Vulnerability(Base)`: `__tablename__ = 'vulnerabilities'`, fields: `id` (UUID), `scan_id` (UUID with relationship to ScanResult), `cve_id` (String), `title` (String), `description` (Text), `severity` (Enum), `cvss_score` (Float), `cvss_vector` (String), `affected_component` (String), `remediation` (Text), `status` (Enum), `discovered_at` (DateTime), `fixed_at` (DateTime). Implements relationships: `ScanResult.vulnerabilities = relationship("Vulnerability", back_populates="scan", cascade="all, delete-orphan")`. Implements `to_dict()` method for serialization to dictionary for API responses. Implements `save()` and `delete()` with session management and transaction handling. Implements `query()` methods for common queries (get_by_id, get_by_user, get_by_status, get_by_date_range). Implements `__repr__()` for debugging representation.
+
+---
+
+#### **4. `query_builder.rs` (Rust)**
+
+**Task:** Build SQL queries dynamically and safely to prevent SQL injection.
+
+**Purpose:** This file implements a query builder pattern for safe dynamic SQL construction. Struct `QueryBuilder` with fields: `query: String` (query being built), `params: Vec<Value>` (parameters for parameterized query). Methods: `select(columns: &[&str]) -> Self` (specify columns to select), `from(table: &str) -> Self` (specify table), `where_cond(condition: &str) -> Self` (add WHERE condition), `and(condition: &str) -> Self` (add AND condition), `or(condition: &str) -> Self` (add OR condition), `order_by(column: &str, asc: bool) -> Self` (add ORDER BY), `limit(n: u32) -> Self` (add LIMIT), `offset(n: u32) -> Self` (add OFFSET), `join(join_type: &str, table: &str, on: &str) -> Self` (add JOIN). Implements `build() -> (String, Vec<Value>)` which returns query string and parameters for parameterized query. Implements parameterized queries using `$1, $2, $3` placeholders for PostgreSQL to prevent SQL injection (parameter values are not escaped directly into query). Implements `build_count()` to build COUNT query from existing query. Implements `build_paginated()` to build query with pagination (LIMIT + OFFSET). Implements `validate()` to validate query before execution (ensures table and column names are valid, no SQL injection patterns).
+
+---
+
+#### **5. `migrations.rs` (Rust)**
+
+**Task:** Manage database migrations for schema version control and updates without data loss.
+
+**Purpose:** This file manages version control for the database schema. Struct `MigrationManager` with fields: `conn: PgConnection` (database connection), `migrations_dir: PathBuf` (directory containing migration files). Implements `run_migrations()`: list all files in `migrations/` with pattern `{timestamp}_{name}.sql` (e.g., `20240101000000_initial_schema.sql`, `20240115000000_add_cve_table.sql`), sort by timestamp, execute in order. Tracks already executed migrations in `migrations` table (id, migration_name, executed_at, checksum) to prevent re-execution. Implements `rollback(last_n: usize)`: rollback N migrations by executing `down` section from migration file (if exists). Migration file format: `-- +migrate Up` for section executed during upgrade, `-- +migrate Down` for section executed during rollback. Implements `create_migration(name: &str)` to generate new migration file with timestamp and template. Implements `status()` to display current migration status: executed and pending migrations. Implements `validate()` to verify migration integrity (checksum match, no missing migrations). Implements `backup_before_migration()` to automatically backup database before running migrations.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`database/` - DATABASE**
+
+---
+
+#### **1. `schema.sql` (SQL)**
+
+**Tugas:** Mendefinisikan struktur database lengkap dengan semua tabel, relasi, indeks, dan constraint.
+
+**Tujuan:** File ini berisi Data Definition Language (DDL) untuk membuat semua tabel yang diperlukan sistem. Mendefinisikan `users` table: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `username VARCHAR(255) UNIQUE NOT NULL`, `password_hash VARCHAR(255) NOT NULL`, `email VARCHAR(255) UNIQUE NOT NULL`, `role ENUM('admin','user','guest') DEFAULT 'user'`, `created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, `last_login TIMESTAMP`, `is_active BOOLEAN DEFAULT true`. Mendefinisikan `scan_results` table: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `user_id UUID REFERENCES users(id) ON DELETE CASCADE`, `target_url VARCHAR(2048) NOT NULL`, `scan_profile VARCHAR(50)`, `started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, `completed_at TIMESTAMP`, `status ENUM('pending','active','completed','failed','cancelled') DEFAULT 'pending'`, `result JSONB`, `summary TEXT`, `risk_score DECIMAL(5,2)`. Mendefinisikan `vulnerabilities` table: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `scan_id UUID REFERENCES scan_results(id) ON DELETE CASCADE`, `cve_id VARCHAR(50)`, `title VARCHAR(255)`, `description TEXT`, `severity ENUM('critical','high','medium','low','info')`, `cvss_score DECIMAL(3,1)`, `cvss_vector VARCHAR(100)`, `affected_component VARCHAR(255)`, `remediation TEXT`, `status ENUM('open','in_progress','fixed','won_fix') DEFAULT 'open'`, `discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, `fixed_at TIMESTAMP`. Mendefinisikan `agent_states` table: `id SERIAL PRIMARY KEY`, `agent_name VARCHAR(100) NOT NULL`, `state JSONB NOT NULL`, `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`. Mendefinisikan `configuration` table: `id SERIAL PRIMARY KEY`, `key VARCHAR(255) UNIQUE NOT NULL`, `value JSONB NOT NULL`, `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`. Indeks untuk optimasi query: `scan_results(user_id, started_at)`, `scan_results(status, started_at)`, `vulnerabilities(scan_id, severity)`, `vulnerabilities(cve_id)`, `agent_states(agent_name)`. Foreign key constraints dengan ON DELETE CASCADE untuk menjaga referential integrity.
+
+---
+
+#### **2. `connection_pool.rs` (Rust)**
+
+**Tugas:** Mengelola koneksi ke database dengan connection pooling untuk performa optimal.
+
+**Tujuan:** File ini mengimplementasikan connection pooling untuk database menggunakan `deadpool_postgres` crate. Struct `ConnectionPool` dengan fields: `pool: Arc<Pool<Postgres>>` (thread-safe connection pool), `config: PoolConfig` (konfigurasi pool). Implementasi `new(config: PoolConfig)` yang membuat connection pool dengan konfigurasi: `max_size=20` (maksimum 20 koneksi concurrent), `min_idle=5` (minimum 5 koneksi idle), `timeout=30s` (timeout untuk mendapatkan koneksi), `idle_timeout=10m` (koneksi idle akan ditutup setelah 10 menit). Implementasi `get_connection() -> Result<PooledConnection>` dengan `pool.get()` async yang mengembalikan koneksi dari pool atau membuat baru jika tersedia. Implementasi `close_all()` untuk graceful shutdown: acquire semua connections (menggunakan loop sampai semua connections diambil), close them properly. Implementasi `health_check()`: test query `SELECT 1`, return true jika successful, false jika failed. Implementasi `monitor_pool()` untuk memonitoring pool metrics: active connections, idle connections, total connections, waiting requests, dan log peringatan jika pool hampir penuh (>80% utilization). Implementasi `reset_pool()` untuk mereset pool jika terjadi masalah koneksi (close all connections dan buat baru).
+
+---
+
+#### **3. `orm_models.py` (Python)**
+
+**Tugas:** Mendefinisikan Object-Relational Mapping (ORM) models untuk interaksi dengan database menggunakan SQLAlchemy.
+
+**Tujuan:** File ini menggunakan SQLAlchemy ORM untuk mendefinisikan model-model database sebagai class Python. Class `User(Base)`: `__tablename__ = 'users'`, fields: `id` (UUID), `username` (String), `password_hash` (String), `email` (String), `role` (Enum), `created_at` (DateTime), `last_login` (DateTime), `is_active` (Boolean). Class `ScanResult(Base)`: `__tablename__ = 'scan_results'`, fields: `id` (UUID), `user_id` (UUID dengan relationship ke User), `target_url` (String), `scan_profile` (String), `started_at` (DateTime), `completed_at` (DateTime), `status` (Enum), `result` (JSON), `summary` (String), `risk_score` (Float). Class `Vulnerability(Base)`: `__tablename__ = 'vulnerabilities'`, fields: `id` (UUID), `scan_id` (UUID dengan relationship ke ScanResult), `cve_id` (String), `title` (String), `description` (Text), `severity` (Enum), `cvss_score` (Float), `cvss_vector` (String), `affected_component` (String), `remediation` (Text), `status` (Enum), `discovered_at` (DateTime), `fixed_at` (DateTime). Implementasi relationships: `ScanResult.vulnerabilities = relationship("Vulnerability", back_populates="scan", cascade="all, delete-orphan")`. Implementasi `to_dict()` method untuk serialization ke dictionary untuk API responses. Implementasi `save()` dan `delete()` dengan session management dan transaction handling. Implementasi `query()` methods untuk common queries (get_by_id, get_by_user, get_by_status, get_by_date_range). Implementasi `__repr__()` untuk debugging representation.
+
+---
+
+#### **4. `query_builder.rs` (Rust)**
+
+**Tugas:** Membangun query SQL secara dinamis dengan aman untuk mencegah SQL injection.
+
+**Tujuan:** File ini mengimplementasikan query builder pattern untuk konstruksi SQL dinamis yang aman. Struct `QueryBuilder` dengan fields: `query: String` (query yang sedang dibangun), `params: Vec<Value>` (parameter untuk parameterized query). Methods: `select(columns: &[&str]) -> Self` (tentukan kolom yang akan di-select), `from(table: &str) -> Self` (tentukan table), `where_cond(condition: &str) -> Self` (tambahkan WHERE condition), `and(condition: &str) -> Self` (tambahkan AND condition), `or(condition: &str) -> Self` (tambahkan OR condition), `order_by(column: &str, asc: bool) -> Self` (tambahkan ORDER BY), `limit(n: u32) -> Self` (tambahkan LIMIT), `offset(n: u32) -> Self` (tambahkan OFFSET), `join(join_type: &str, table: &str, on: &str) -> Self` (tambahkan JOIN). Implementasi `build() -> (String, Vec<Value>)` yang mengembalikan query string dan parameter untuk parameterized query. Implementasi parameterized queries menggunakan `$1, $2, $3` placeholder untuk PostgreSQL untuk mencegah SQL injection (nilai parameter tidak di-escape langsung ke query). Implementasi `build_count()` untuk membangun COUNT query dari query yang ada. Implementasi `build_paginated()` untuk membangun query dengan pagination (LIMIT + OFFSET). Implementasi `validate()` untuk memvalidasi query sebelum eksekusi (memastikan table dan column names valid, tidak ada SQL injection patterns).
+
+---
+
+#### **5. `migrations.rs` (Rust)**
+
+**Tugas:** Mengelola migrasi database untuk version control schema dan update tanpa data loss.
+
+**Tujuan:** File ini mengelola version control untuk schema database. Struct `MigrationManager` dengan fields: `conn: PgConnection` (koneksi database), `migrations_dir: PathBuf` (direktori yang berisi file migrasi). Implementasi `run_migrations()`: list semua file di `migrations/` dengan pattern `{timestamp}_{name}.sql` (contoh: `20240101000000_initial_schema.sql`, `20240115000000_add_cve_table.sql`), sort by timestamp, execute in order. Track yang sudah dijalankan di table `migrations` (id, migration_name, executed_at, checksum) untuk mencegah eksekusi ulang. Implementasi `rollback(last_n: usize)`: rollback N migrations dengan execute `down` section dari migration file (if exists). Migration file format: `-- +migrate Up` untuk section yang dijalankan saat upgrade, `-- +migrate Down` untuk section yang dijalankan saat rollback. Implementasi `create_migration(name: &str)` untuk generate migration file baru dengan timestamp dan template. Implementasi `status()` untuk menampilkan status migrasi saat ini: migrations yang sudah dijalankan dan yang pending. Implementasi `validate()` untuk memverifikasi integritas migrasi (checksum match, tidak ada missing migrations). Implementasi `backup_before_migration()` untuk melakukan backup database otomatis sebelum menjalankan migrasi.
+
+---
+
+**api folder explanation:**
+
+---
+
+## 📂 **`api/` - REST API**
+
+---
+
+#### **1. `rest_api.rs` (Rust)**
+
+**Task:** Provide REST API server for system interaction via HTTP.
+
+**Purpose:** This file implements the REST API server using the `axum` framework for routing and request handling. Struct `RestApi` with fields: `app: Router` (axum router with all routes), `state: AppState` (shared state for handlers), `config: ApiConfig` (API configuration). Implements `new()` which creates `axum::Router` with all route definitions: `post /api/v1/scan` to start new scan (body: `{"url": "example.com", "profile": "moderate"}`), `get /api/v1/scan/:id/status` to get scan status, `get /api/v1/scan/:id/report` to get scan results report, `post /api/v1/analyze/:id` to run analysis on existing data, `get /api/v1/export/:id/:format` to export data in specific format (json, txt, docs, csv, html, pdf), `get /api/v1/history` to view scan history (with pagination), `post /api/v1/monitor` to start scheduled monitoring, `get /api/v1/health` for health check. Implements `run()`: serve on config `host:port`, with `tower::ServiceBuilder` middleware stack: `TraceLayer` for logging each request, `CorsLayer` for CORS headers (allow origins from config), `AuthorizationLayer` for authentication check. Implements `shutdown()` with graceful shutdown: listen for SIGTERM, finish pending requests (timeout 30s), shutdown server. Implements `openapi_docs()` to automatically generate OpenAPI/Swagger documentation.
+
+---
+
+#### **2. `websocket_handler.rs` (Rust)**
+
+**Task:** Provide WebSocket server for real-time communication and streaming.
+
+**Purpose:** This file implements the WebSocket server for real-time communication. Struct `WebSocketHandler` with fields: `clients: Arc<DashMap<String, WebSocket>>` (map from client_id to WebSocket connection), `message_sender: mpsc::Sender<Message>` (sender for broadcast messages). Implements `handle_connection(ws: WebSocket)` with `axum::extract::ws` for upgrading HTTP to WebSocket. Listens for messages from clients: `ping` -> respond `pong` (keep-alive), `subscribe {scan_id}` -> add client to subscribers list for scan_id (client will receive all updates for that scan_id), `unsubscribe {scan_id}` -> remove client from subscribers, `command {cmd}` -> execute command and stream output to client. Implements `broadcast_log(scan_id: &str, log_entry: &str)` for streaming logs to all subscribers of a specific scan_id. Implements `broadcast_progress(scan_id: &str, progress: f32, status: &str)` for streaming progress updates. Implements `broadcast_alert(alert: Alert)` to send alerts to all subscribed clients. Implements `heartbeat()`: send ping to all clients every 30 seconds, if client does not respond within 60 seconds, close connection. Implements `connection_pool()` to manage multiple WebSocket connections with max 1000 concurrent connections, idle timeout 60 seconds.
+
+---
+
+#### **3. `authentication.rs` (Rust)**
+
+**Task:** Provide secure authentication and authorization system for the API.
+
+**Purpose:** This file implements authentication using JWT (JSON Web Tokens) and API keys. Struct `Authentication` with fields: `jwt_secret: String` (secret key for signing JWT), `validator: Validator` (token validator). Implements `generate_jwt(user_id: &str, role: &str) -> String` using `jsonwebtoken` crate. Claims: `sub` (user_id), `role` (admin, user, guest), `exp` (expiration time = current_time + 24 hours), `iat` (issued at), `iss` (issuer = "iws"). Implements `validate_jwt(token: &str) -> Result<Claims>`: verify signature (using HS256 algorithm), check expiration (exp > current_time), check issuer (iss == "iws"), extract claims. Implements `api_key_middleware()`: check `X-API-Key` header, validate against stored keys in database (table `api_keys` with key, user_id, permissions, expires_at). Implements `permission_check(role: &str, required_role: &str) -> bool`: admin can perform all actions, user can perform actions for their own scans, guest can only read-only. Implements `rate_limit_by_user()`: users with admin role have higher limit (1000 requests/hour), user (100/hour), guest (10/hour). Implements `refresh_token()`: generate new JWT from refresh token to extend session without re-login. Implements `blacklist_token()` to add token to blacklist (Redis) if logout or token compromised.
+
+---
+
+#### **4. `rate_limiter_middleware.rs` (Rust)**
+
+**Task:** Provide rate limiting on API to prevent abuse and DoS attacks.
+
+**Purpose:** This file implements middleware for rate limiting on the API. Struct `RateLimiterMiddleware` with fields: `limiter: Arc<RateLimiter>` (shared rate limiter), `config: RateLimiterConfig` (rate limit configuration). Implements `call(request: Request) -> Result<Response>`: extract IP address from `X-Forwarded-For` header (if present) or socket address (`req.remote_addr()`). Check rate limit for IP: max 100 requests per minute (default). If exceeded, return HTTP 429 (Too Many Requests) with `Retry-After` header (time in seconds until rate limit resets). Implements `per_api_key_limit`: limit per API key based on tier (admin: 1000/hour, user: 100/hour, guest: 10/hour). Implements `per_route_limit`: different limits for different endpoints (`/api/v1/scan` stricter (10/minute) than `/api/v1/status` (1000/minute)). Implements `sliding_window_counter()` for more accurate rate limiting: store request timestamps in Redis sorted set, check count in last N seconds. Implements `token_bucket()` for burst handling: allow burst up to capacity (e.g., 100 requests in 1 minute, burst up to 20). Implements `get_rate_limit_status()` to return remaining requests and reset time in response headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`).
+
+---
+
+#### **5. `endpoint_routes.rs` (Rust)**
+
+**Task:** Define all endpoint routes and handler functions in an organized manner.
+
+**Purpose:** This file defines route definitions with `axum::Router` nesting. Groups: `/api/v1` root with sub-routes: `scan_routes()`: `/scan` (POST to start, GET for list, DELETE to cancel), `analysis_routes()`: `/analyze` (POST to run analysis, GET to get results), `report_routes()`: `/report` (GET to get report, POST to generate), `export_routes()`: `/export` (GET to export data), `history_routes()`: `/history` (GET for scan history), `monitor_routes()`: `/monitor` (POST to start monitoring, DELETE to stop). Implements handler functions with async `fn handler(State(state): State<AppState>, Query(params): Query<Params>) -> impl IntoResponse`. Each handler uses `axum::Json` for JSON serialization/deserialization. Implements `extractors`: `Path<Uuid>` to extract scan_id from URL, `Query<HashMap<String, String>>` for query parameters, `Json<T>` for JSON body. Implements `error_handling()`: convert internal errors to HTTP status codes (404 for Not Found, 400 for Bad Request, 500 for Internal Server Error) with JSON error response format: `{"error": {"code": "E1001", "message": "Scan not found", "details": {...}}}`. Implements `openapi_docs()` with `utoipa` library to generate OpenAPI specification from route definitions. Implements `validate_request()` to validate request body using `validator` crate before processing.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`api/` - REST API**
+
+---
+
+#### **1. `rest_api.rs` (Rust)**
+
+**Tugas:** Menyediakan REST API server untuk interaksi dengan sistem melalui HTTP.
+
+**Tujuan:** File ini mengimplementasikan REST API server menggunakan framework `axum` untuk routing dan handling request. Struct `RestApi` dengan fields: `app: Router` (axum router dengan semua routes), `state: AppState` (shared state untuk handlers), `config: ApiConfig` (konfigurasi API). Implementasi `new()` yang membuat `axum::Router` dengan semua route definitions: `post /api/v1/scan` untuk memulai scanning baru (body: `{"url": "example.com", "profile": "moderate"}`), `get /api/v1/scan/:id/status` untuk mendapatkan status scanning, `get /api/v1/scan/:id/report` untuk mendapatkan laporan hasil scan, `post /api/v1/analyze/:id` untuk menjalankan analisis pada data yang sudah ada, `get /api/v1/export/:id/:format` untuk mengekspor data dalam format tertentu (json, txt, docs, csv, html, pdf), `get /api/v1/history` untuk melihat riwayat scanning (dengan pagination), `post /api/v1/monitor` untuk memulai monitoring berjadwal, `get /api/v1/health` untuk health check. Implementasi `run()`: serve on config `host:port`, dengan `tower::ServiceBuilder` middleware stack: `TraceLayer` untuk logging setiap request, `CorsLayer` untuk CORS headers (allow origins dari config), `AuthorizationLayer` untuk authentication check. Implementasi `shutdown()` dengan graceful shutdown: listen untuk SIGTERM, finish pending requests (timeout 30s), shutdown server. Implementasi `openapi_docs()` untuk menghasilkan OpenAPI/Swagger documentation secara otomatis.
+
+---
+
+#### **2. `websocket_handler.rs` (Rust)**
+
+**Tugas:** Menyediakan WebSocket server untuk real-time communication dan streaming.
+
+**Tujuan:** File ini mengimplementasikan WebSocket server untuk komunikasi real-time. Struct `WebSocketHandler` dengan fields: `clients: Arc<DashMap<String, WebSocket>>` (map dari client_id ke WebSocket connection), `message_sender: mpsc::Sender<Message>` (sender untuk broadcast messages). Implementasi `handle_connection(ws: WebSocket)` dengan `axum::extract::ws` untuk upgrade HTTP ke WebSocket. Listen for messages dari client: `ping` -> respond `pong` (keep-alive), `subscribe {scan_id}` -> add client to subscribers list for scan_id (client akan menerima semua update untuk scan_id tersebut), `unsubscribe {scan_id}` -> remove client from subscribers, `command {cmd}` -> execute command dan stream output ke client. Implementasi `broadcast_log(scan_id: &str, log_entry: &str)` untuk streaming log ke semua subscribers dari scan_id tertentu. Implementasi `broadcast_progress(scan_id: &str, progress: f32, status: &str)` untuk streaming progress updates. Implementasi `broadcast_alert(alert: Alert)` untuk mengirim alert ke semua clients yang subscribe. Implementasi `heartbeat()`: kirim ping ke semua clients setiap 30 detik, jika client tidak merespon dalam 60 detik, tutup connection. Implementasi `connection_pool()` untuk manage multiple WebSocket connections dengan max 1000 concurrent connections, idle timeout 60 detik.
+
+---
+
+#### **3. `authentication.rs` (Rust)**
+
+**Tugas:** Menyediakan sistem autentikasi dan otorisasi yang aman untuk API.
+
+**Tujuan:** File ini mengimplementasikan autentikasi menggunakan JWT (JSON Web Tokens) dan API keys. Struct `Authentication` dengan fields: `jwt_secret: String` (secret key untuk signing JWT), `validator: Validator` (validator untuk token). Implementasi `generate_jwt(user_id: &str, role: &str) -> String` menggunakan `jsonwebtoken` crate. Claims: `sub` (user_id), `role` (admin, user, guest), `exp` (expiration time = current_time + 24 jam), `iat` (issued at), `iss` (issuer = "iws"). Implementasi `validate_jwt(token: &str) -> Result<Claims>`: verify signature (menggunakan HS256 algorithm), check expiration (exp > current_time), check issuer (iss == "iws"), extract claims. Implementasi `api_key_middleware()`: check `X-API-Key` header, validate against stored keys in database (table `api_keys` dengan key, user_id, permissions, expires_at). Implementasi `permission_check(role: &str, required_role: &str) -> bool`: admin dapat melakukan semua actions, user dapat melakukan actions untuk scan sendiri, guest hanya dapat read-only. Implementasi `rate_limit_by_user()`: user dengan role admin memiliki limit lebih tinggi (1000 requests/hour), user (100/hour), guest (10/hour). Implementasi `refresh_token()`: generate new JWT from refresh token untuk memperpanjang session tanpa login ulang. Implementasi `blacklist_token()` untuk menambahkan token ke blacklist (Redis) jika logout atau token compromised.
+
+---
+
+#### **4. `rate_limiter_middleware.rs` (Rust)**
+
+**Tugas:** Memberikan rate limiting pada API untuk mencegah abuse dan DoS attacks.
+
+**Tujuan:** File ini mengimplementasikan middleware untuk rate limiting pada API. Struct `RateLimiterMiddleware` dengan fields: `limiter: Arc<RateLimiter>` (shared rate limiter), `config: RateLimiterConfig` (konfigurasi rate limit). Implementasi `call(request: Request) -> Result<Response>`: extract IP address dari `X-Forwarded-For` header (jika ada) atau socket address (`req.remote_addr()`). Check rate limit untuk IP: max 100 requests per minute (default). Jika exceeded, return HTTP 429 (Too Many Requests) dengan `Retry-After` header (waktu dalam detik sampai rate limit reset). Implementasi `per_api_key_limit`: limit per API key berdasarkan tier (admin: 1000/hour, user: 100/hour, guest: 10/hour). Implementasi `per_route_limit`: different limits untuk different endpoints (`/api/v1/scan` stricter (10/minute) daripada `/api/v1/status` (1000/minute)). Implementasi `sliding_window_counter()` untuk rate limiting yang lebih akurat: store request timestamps in Redis sorted set, check count in last N seconds. Implementasi `token_bucket()` untuk burst handling: allow burst up to capacity (contoh: 100 requests in 1 minute, burst up to 20). Implementasi `get_rate_limit_status()` untuk mengembalikan remaining requests dan reset time dalam response headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`).
+
+---
+
+#### **5. `endpoint_routes.rs` (Rust)**
+
+**Tugas:** Mendefinisikan semua endpoint routes dan handler functions secara terorganisir.
+
+**Tujuan:** File ini mendefinisikan route definitions dengan `axum::Router` nesting. Groups: `/api/v1` root yang memiliki sub-routes: `scan_routes()`: `/scan` (POST untuk start, GET untuk list, DELETE untuk cancel), `analysis_routes()`: `/analyze` (POST untuk run analysis, GET untuk get results), `report_routes()`: `/report` (GET untuk get report, POST untuk generate), `export_routes()`: `/export` (GET untuk export data), `history_routes()`: `/history` (GET untuk history scanning), `monitor_routes()`: `/monitor` (POST untuk start monitoring, DELETE untuk stop). Implementasi handler functions dengan async `fn handler(State(state): State<AppState>, Query(params): Query<Params>) -> impl IntoResponse`. Setiap handler menggunakan `axum::Json` untuk JSON serialization/deserialization. Implementasi `extractors`: `Path<Uuid>` untuk extract scan_id dari URL, `Query<HashMap<String, String>>` untuk query parameters, `Json<T>` untuk JSON body. Implementasi `error_handling()`: convert internal errors ke HTTP status codes (404 for Not Found, 400 for Bad Request, 500 for Internal Server Error) dengan JSON error response format: `{"error": {"code": "E1001", "message": "Scan not found", "details": {...}}}`. Implementasi `openapi_docs()` dengan `utoipa` library untuk generate OpenAPI specification dari route definitions. Implementasi `validate_request()` untuk memvalidasi request body menggunakan `validator` crate sebelum diproses.
+
+---
+
+**reports folder explanation:**
+
+---
+
+## 📂 **`reports/` - REPORTING**
+
+---
+
+#### **1. `report_factory.rs` (Rust)**
+
+**Task:** Implement factory pattern to create various types of reports in different formats.
+
+**Purpose:** This file serves as a report factory that generates various report formats based on user needs. Struct `ReportFactory` with fields: `reporters: HashMap<String, Box<dyn Reporter>>` (map from format to reporter implementation). Implements `create_report(data: &ReportData, format: &str) -> Result<Vec<u8>>`: selects reporter based on requested format. Available reporters: `JsonReporter` -> uses `serde_json::to_vec_pretty()` to generate structured JSON, `TxtReporter` -> uses `txt_generator` for plain text, `DocsReporter` -> uses `docs_builder` for DOCX/ODT, `CsvReporter` -> uses `csv_exporter` for spreadsheet, `HtmlReporter` -> uses `html_reporter` for interactive HTML, `PdfReporter` -> uses `pdf_generator` for professional PDF. Implements `get_supported_formats() -> Vec<String>` to return list of supported formats. Implements `get_recommended_format()` to recommend format based on data type and user (e.g., technical team -> JSON/HTML, management -> PDF/DOCS). Implements `validate_data()` to ensure data is complete before creating report. Implements `add_custom_reporter()` to allow users to add custom reporters.
+
+---
+
+#### **2. `executive_summary_builder.rs` (Rust)**
+
+**Task:** Build concise and informative executive summary for management and non-technical stakeholders.
+
+**Purpose:** This file generates an executive summary in natural language that is easy for management to understand. Struct `ExecutiveSummaryBuilder` with fields: `summarizer: Box<dyn Summarizer>` (AI summarizer), `template: String` (template for output). Implements `build(data: &ReportData) -> String`: generates natural language summary using AI model (LLama3/Mistral) with prompt engineering. Prompt template: `"Based on the following security findings, generate an executive summary for business stakeholders. Focus on business impact, critical issues requiring immediate attention, and recommended actions. Keep it concise (max 300 words) and avoid technical jargon.\n\nFindings: {findings_json}\n\nTarget: {target_url}\nScan Date: {scan_date}"`. Implements `extract_key_findings()` to extract the most important findings (critical and high severity) from all findings. Implements `generate_recommendations()`: based on vulnerability list, creates prioritized action items with estimated effort and impact. Implements `calculate_business_risk()`: translates technical risk to business risk (financial impact, reputational impact, regulatory impact). Implements `format_for_stakeholder()`: adjusts language for various stakeholders (CISO, CEO, Developer, Legal). Implements `add_executive_highlights()`: adds brief highlights (3-5 bullet points) at the beginning of the summary.
+
+---
+
+#### **3. `technical_deep_dive.rs` (Rust)**
+
+**Task:** Generate detailed technical reports for security teams and developers.
+
+**Purpose:** This file produces comprehensive technical reports with all technical details. Struct `TechnicalDeepDive` with fields: `data: ReportData`, `format: TechnicalFormat` (output format). Implements `generate_document()`: organizes findings by severity (critical, high, medium, low), then by type (network, content, security, infrastructure). Each finding includes: `vulnerability_description` (technical description of the vulnerability), `affected_systems` (systems impacted), `proof_of_concept` (code or steps to reproduce), `impact_analysis` (impact if exploited), `remediation_steps` (fix steps with detailed instructions). Adds technical references: CVE links (nvd.nist.gov), OWASP references (owasp.org), vendor security advisories. Implements `generate_network_diagram()` to create network diagram showing target architecture. Implements `generate_code_snippets()` to provide example fix code (e.g., how to fix XSS with encoding, how to add CSRF token). Implements `generate_testing_steps()` to provide verification steps for fixes. Implements `add_technical_glossary()` to explain technical terms used.
+
+---
+
+#### **4. `vulnerability_tracker.rs` (Rust)**
+
+**Task:** Track all discovered vulnerabilities and their remediation status.
+
+**Purpose:** This file manages the lifecycle of each discovered vulnerability. Struct `VulnerabilityTracker` with fields: `tracker: HashMap<String, VulnerabilityStatus>` (map from vulnerability ID to status), `history: Vec<StatusChange>` (status change history). Implements `track(vulnerability: &Vulnerability)`: assigns unique ID to vulnerability (format: `VULN-{timestamp}-{counter}`), initial status `"open"` with timestamp. Implements `update_status(vuln_id: &str, new_status: &str)`: updates status to (open, in_progress, fixed, won_fix, false_positive), records change in history with timestamp, user, and comment. Implements `get_status_summary()`: calculates total vulnerabilities per status (open: 5, in_progress: 3, fixed: 10, won_fix: 2). Implements `calculate_sla_compliance()`: calculates percentage of vulnerabilities fixed within SLA (Service Level Agreement) - e.g., critical must be fixed within 24 hours, high within 7 days, medium within 30 days, low within 90 days. Implements `generate_tracker_report()`: creates complete tracking report with all vulnerabilities, current status, time open, and SLA compliance. Implements `get_vulnerability_timeline()`: gets complete timeline of each vulnerability (discovered, analyzed, assigned, fixed, verified). Implements `assign_owner(vuln_id: &str, owner: &str)` to assign responsible owner for remediation.
+
+---
+
+#### **5. `timeline_generator.rs` (Rust)**
+
+**Task:** Generate timeline of scanning activity and findings in chronological format.
+
+**Purpose:** This file generates a visual timeline showing the sequence of events during scanning and analysis. Struct `TimelineGenerator` with fields: `events: Vec<TimelineEvent>` (list of events that occurred). Implements `add_event(timestamp: DateTime, event_type: &str, details: &str)` to add event to timeline. Event types: `ScanStarted` (scanning started), `ModuleStarted` (scanning module started), `ModuleCompleted` (scanning module completed), `FindingFound` (vulnerability found), `ScanCompleted` (scanning completed), `AnalysisStarted` (analysis started), `AnalysisCompleted` (analysis completed), `ReportGenerated` (report generated), `ChangeDetected` (change detected by monitoring). Implements `generate()`: sorts events by timestamp, formats with ASCII timeline or visual chart. ASCII timeline format:
+```
+[2024-01-15 10:00:00] Scan Started for example.com
+[2024-01-15 10:00:05] Network Module Started - DNS Enumeration
+[2024-01-15 10:00:30] Network Module Completed - 5 records found
+[2024-01-15 10:00:35] Security Module Started - XSS Detection
+[2024-01-15 10:01:00] Finding Found - XSS vulnerability in /search?q= parameter
+[2024-01-15 10:01:30] Security Module Completed - 2 vulnerabilities found
+[2024-01-15 10:05:00] Scan Completed - Duration: 5m 0s
+[2024-01-15 10:05:10] Analysis Started
+[2024-01-15 10:10:00] Analysis Completed - 5 findings total
+[2024-01-15 10:10:05] Report Generated - PDF format
+```
+Implements `generate_chart()` for visual chart using Chart.js or matplotlib: bar chart showing events by time. Implements `export_timeline(format: TimelineFormat)` to export timeline in various formats (text, HTML, JSON). Implements `correlate_events()` to correlate related events (e.g., FindingFound with ModuleStarted that led to the discovery).
+
+---
+
+#### **6. `graph_visualizer.py` (Python)**
+
+**Task:** Create data visualizations in the form of graphs and charts for reports.
+
+**Purpose:** This file generates various data visualizations using matplotlib and plotly. Class `GraphVisualizer` with fields: `plotter: matplotlib.pyplot`, `style: str` (style for charts). Implements `create_bar_chart(data: Dict[str, int], title: str) -> bytes`: matplotlib bar chart for severity distribution (critical, high, medium, low, info), returns PNG bytes. Implements `create_pie_chart(data: Dict[str, int], title: str) -> bytes`: pie chart for vulnerability type percentages (XSS, SQLi, CSRF, Header Issues, etc). Implements `create_line_chart(dates: List[datetime], values: List[float], title: str) -> bytes`: line chart for timeline activity (vulnerabilities over time, risk score over time). Implements `create_network_graph(nodes: List[Node], edges: List[Edge]) -> bytes`: uses networkx for graph visualization of link graph (shows relationships between pages, internal/external links). Implements `create_heat_map(data: List[List[float]], labels: List[str]) -> bytes`: heat map for threat geolocation or port distribution. Implements `create_radar_chart(categories: List[str], values: List[float], title: str) -> bytes`: radar chart for comparing multiple metrics (security score across various categories). Implements `create_donut_chart()` for donut chart (pie chart with hole in the center). Implements `apply_style()` to apply consistent style to all charts (colors, fonts, sizes). Implements `export_charts()` to export all charts as images (PNG, SVG) for insertion into reports.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`reports/` - PELAPORAN**
+
+---
+
+#### **1. `report_factory.rs` (Rust)**
+
+**Tugas:** Mengimplementasikan factory pattern untuk membuat berbagai jenis laporan dalam berbagai format.
+
+**Tujuan:** File ini berfungsi sebagai pabrik laporan yang menghasilkan berbagai format laporan berdasarkan kebutuhan pengguna. Struct `ReportFactory` dengan fields: `reporters: HashMap<String, Box<dyn Reporter>>` (map dari format ke reporter implementation). Implementasi `create_report(data: &ReportData, format: &str) -> Result<Vec<u8>>`: pilih reporter berdasarkan format yang diminta. Reporter yang tersedia: `JsonReporter` -> menggunakan `serde_json::to_vec_pretty()` untuk menghasilkan JSON terstruktur, `TxtReporter` -> menggunakan `txt_generator` untuk plain text, `DocsReporter` -> menggunakan `docs_builder` untuk DOCX/ODT, `CsvReporter` -> menggunakan `csv_exporter` untuk spreadsheet, `HtmlReporter` -> menggunakan `html_reporter` untuk HTML interaktif, `PdfReporter` -> menggunakan `pdf_generator` untuk PDF profesional. Implementasi `get_supported_formats() -> Vec<String>` untuk mengembalikan list format yang didukung. Implementasi `get_recommended_format()` untuk merekomendasikan format berdasarkan jenis data dan pengguna (contoh: technical team -> JSON/HTML, management -> PDF/DOCS). Implementasi `validate_data()` untuk memastikan data lengkap sebelum membuat laporan. Implementasi `add_custom_reporter()` untuk memungkinkan pengguna menambahkan reporter kustom.
+
+---
+
+#### **2. `executive_summary_builder.rs` (Rust)**
+
+**Tugas:** Membangun executive summary yang ringkas dan informatif untuk manajemen dan stakeholder non-teknis.
+
+**Tujuan:** File ini menghasilkan ringkasan eksekutif dalam bahasa alami yang mudah dipahami oleh manajemen. Struct `ExecutiveSummaryBuilder` dengan fields: `summarizer: Box<dyn Summarizer>` (AI summarizer), `template: String` (template untuk output). Implementasi `build(data: &ReportData) -> String`: generate natural language summary menggunakan AI model (LLama3/Mistral) dengan prompt engineering. Prompt template: `"Based on the following security findings, generate an executive summary for business stakeholders. Focus on business impact, critical issues requiring immediate attention, and recommended actions. Keep it concise (max 300 words) and avoid technical jargon.\n\nFindings: {findings_json}\n\nTarget: {target_url}\nScan Date: {scan_date}"`. Implementasi `extract_key_findings()` untuk mengekstrak temuan paling penting (critical dan high severity) dari semua findings. Implementasi `generate_recommendations()`: berdasarkan vulnerability list, buat prioritized action items dengan estimated effort dan impact. Implementasi `calculate_business_risk()`: terjemahkan technical risk ke business risk (financial impact, reputational impact, regulatory impact). Implementasi `format_for_stakeholder()`: sesuaikan bahasa untuk berbagai stakeholder (CISO, CEO, Developer, Legal). Implementasi `add_executive_highlights()`: tambahkan highlight singkat (3-5 bullet points) di awal summary.
+
+---
+
+#### **3. `technical_deep_dive.rs` (Rust)**
+
+**Tugas:** Menghasilkan laporan teknis yang mendetail untuk tim keamanan dan developer.
+
+**Tujuan:** File ini menghasilkan laporan teknis yang komprehensif dengan semua detail teknis. Struct `TechnicalDeepDive` dengan fields: `data: ReportData`, `format: TechnicalFormat` (format output). Implementasi `generate_document()`: organize findings by severity (critical, high, medium, low), kemudian by type (network, content, security, infrastructure). Setiap finding mencakup: `vulnerability_description` (deskripsi teknis kerentanan), `affected_systems` (sistem yang terkena dampak), `proof_of_concept` (kode atau langkah-langkah untuk mereproduksi), `impact_analysis` (dampak jika dieksploitasi), `remediation_steps` (langkah-langkah perbaikan dengan instruksi detail). Tambahkan technical references: CVE links (nvd.nist.gov), OWASP references (owasp.org), vendor security advisories. Implementasi `generate_network_diagram()` untuk membuat diagram jaringan yang menunjukkan arsitektur target. Implementasi `generate_code_snippets()` untuk memberikan contoh kode perbaikan (misal: cara memperbaiki XSS dengan encoding, cara menambahkan CSRF token). Implementasi `generate_testing_steps()` untuk memberikan langkah-langkah verifikasi perbaikan. Implementasi `add_technical_glossary()` untuk menjelaskan istilah-istilah teknis yang digunakan.
+
+---
+
+#### **4. `vulnerability_tracker.rs` (Rust)**
+
+**Tugas:** Melacak semua kerentanan yang ditemukan dan status perbaikannya.
+
+**Tujuan:** File ini mengelola lifecycle dari setiap vulnerability yang ditemukan. Struct `VulnerabilityTracker` dengan fields: `tracker: HashMap<String, VulnerabilityStatus>` (map dari vulnerability ID ke status), `history: Vec<StatusChange>` (riwayat perubahan status). Implementasi `track(vulnerability: &Vulnerability)`: assign unique ID ke vulnerability (format: `VULN-{timestamp}-{counter}`), initial status `"open"` dengan timestamp. Implementasi `update_status(vuln_id: &str, new_status: &str)`: update status ke (open, in_progress, fixed, won_fix, false_positive), record change in history dengan timestamp, user, dan comment. Implementasi `get_status_summary()`: menghitung total vulnerabilities per status (open: 5, in_progress: 3, fixed: 10, won_fix: 2). Implementasi `calculate_sla_compliance()`: menghitung persentase vulnerabilities yang diperbaiki dalam SLA (Service Level Agreement) - contoh: critical harus diperbaiki dalam 24 jam, high dalam 7 hari, medium dalam 30 hari, low dalam 90 hari. Implementasi `generate_tracker_report()`: membuat laporan tracking lengkap dengan semua vulnerabilities, current status, time open, dan SLA compliance. Implementasi `get_vulnerability_timeline()`: mendapatkan timeline lengkap dari setiap vulnerability (discovered, analyzed, assigned, fixed, verified). Implementasi `assign_owner(vuln_id: &str, owner: &str)` untuk menetapkan pemilik yang bertanggung jawab atas perbaikan.
+
+---
+
+#### **5. `timeline_generator.rs` (Rust)**
+
+**Tugas:** Generate timeline aktivitas scanning dan findings dalam format kronologis.
+
+**Tujuan:** File ini menghasilkan timeline visual yang menunjukkan urutan kejadian selama scanning dan analisis. Struct `TimelineGenerator` dengan fields: `events: Vec<TimelineEvent>` (daftar event yang terjadi). Implementasi `add_event(timestamp: DateTime, event_type: &str, details: &str)` untuk menambahkan event ke timeline. Event types: `ScanStarted` (scanning dimulai), `ModuleStarted` (module scanning dimulai), `ModuleCompleted` (module scanning selesai), `FindingFound` (kerentanan ditemukan), `ScanCompleted` (scanning selesai), `AnalysisStarted` (analisis dimulai), `AnalysisCompleted` (analisis selesai), `ReportGenerated` (laporan dihasilkan), `ChangeDetected` (perubahan terdeteksi oleh monitoring). Implementasi `generate()`: sort events by timestamp, format dengan ASCII timeline atau visual chart. ASCII timeline format: 
+```
+[2024-01-15 10:00:00] Scan Started for example.com
+[2024-01-15 10:00:05] Network Module Started - DNS Enumeration
+[2024-01-15 10:00:30] Network Module Completed - 5 records found
+[2024-01-15 10:00:35] Security Module Started - XSS Detection
+[2024-01-15 10:01:00] Finding Found - XSS vulnerability in /search?q= parameter
+[2024-01-15 10:01:30] Security Module Completed - 2 vulnerabilities found
+[2024-01-15 10:05:00] Scan Completed - Duration: 5m 0s
+[2024-01-15 10:05:10] Analysis Started
+[2024-01-15 10:10:00] Analysis Completed - 5 findings total
+[2024-01-15 10:10:05] Report Generated - PDF format
+```
+Implementasi `generate_chart()` untuk visual chart menggunakan Chart.js atau matplotlib: bar chart showing events by time. Implementasi `export_timeline(format: TimelineFormat)` untuk mengekspor timeline dalam berbagai format (text, HTML, JSON). Implementasi `correlate_events()` untuk menghubungkan event yang terkait (misal: FindingFound dengan ModuleStarted yang menyebabkan penemuan tersebut).
+
+---
+
+#### **6. `graph_visualizer.py` (Python)**
+
+**Tugas:** Membuat visualisasi data dalam bentuk grafik dan charts untuk laporan.
+
+**Tujuan:** File ini menghasilkan berbagai visualisasi data menggunakan matplotlib dan plotly. Class `GraphVisualizer` dengan fields: `plotter: matplotlib.pyplot`, `style: str` (style untuk chart). Implementasi `create_bar_chart(data: Dict[str, int], title: str) -> bytes`: matplotlib bar chart untuk distribusi severity (critical, high, medium, low, info), return PNG bytes. Implementasi `create_pie_chart(data: Dict[str, int], title: str) -> bytes`: pie chart untuk persentase jenis vulnerability (XSS, SQLi, CSRF, Header Issues, etc). Implementasi `create_line_chart(dates: List[datetime], values: List[float], title: str) -> bytes`: line chart untuk timeline activity (vulnerabilities over time, risk score over time). Implementasi `create_network_graph(nodes: List[Node], edges: List[Edge]) -> bytes`: menggunakan networkx untuk graph visualization dari link graph (menunjukkan hubungan antar halaman, internal/external links). Implementasi `create_heat_map(data: List[List[float]], labels: List[str]) -> bytes`: heat map untuk geolokasi ancaman atau port distribution. Implementasi `create_radar_chart(categories: List[str], values: List[float], title: str) -> bytes`: radar chart untuk perbandingan multiple metrics (security score di berbagai kategori). Implementasi `create_donut_chart()` untuk donut chart (pie chart dengan hole di tengah). Implementasi `apply_style()` untuk menerapkan style konsisten ke semua charts (colors, fonts, sizes). Implementasi `export_charts()` untuk mengekspor semua charts sebagai gambar (PNG, SVG) untuk disisipkan ke laporan.
+
+---

@@ -552,3 +552,53 @@ Explanation of the modules folder security section:
 Indonesian:
 
 ---
+
+## 📂 **`modules/security/` - Analisis Keamanan**
+
+#### **1. `header_analyzer.rs` (Rust)**
+
+**Tugas:** Menganalisis HTTP response headers untuk mengevaluasi konfigurasi keamanan website.
+
+**Tujuan:** File ini memeriksa semua HTTP response headers dan memberikan skor keamanan berdasarkan keberadaan dan ketepatan konfigurasi. Untuk `HSTS` (HTTP Strict Transport Security): memeriksa header, mem-parsing `max-age` (durasi enforce HTTPS), `includeSubDomains` (apakah berlaku untuk subdomain), `preload` (apakah siap untuk HSTS preload list). Memberi skor: max-age >= 31536000 (1 tahun) score 10, >= 2592000 (30 hari) score 8, < 30 hari score 5, tidak ada score 0. Untuk `CSP` (Content Security Policy): mem-parsing header, memeriksa `default-src` (fallback untuk semua resource), `script-src` (sumber script yang diizinkan), `style-src` (sumber style yang diizinkan), mendeteksi adanya `unsafe-inline` (berbahaya untuk XSS), `unsafe-eval` (berbahaya untuk code injection). Untuk `X-Frame-Options`: memeriksa apakah `DENY` (mencegah semua framing), `SAMEORIGIN` (hanya dari domain yang sama), atau `ALLOW-FROM` (hanya dari URL tertentu). Untuk `X-XSS-Protection`: memeriksa `1; mode=block` (aktif dan blocking) vs `0` (nonaktif). Generate `HeaderSecurityScore` dengan percentage dari total possible points.
+
+---
+
+#### **2. `cookie_scanner.rs` (Rust)**
+
+**Tugas:** Memindai dan menganalisis cookie yang diset oleh website untuk menemukan konfigurasi yang tidak aman.
+
+**Tujuan:** File ini mengekstrak semua `Set-Cookie` headers dari response dan mem-parsing setiap cookie menggunakan `cookie` crate. Untuk setiap cookie, periksa: `secure` flag (apakah cookie hanya dikirim melalui HTTPS - jika tidak, rentan terhadap session hijacking), `httpOnly` flag (apakah cookie tidak dapat diakses oleh JavaScript - jika tidak, rentan terhadap XSS), `same_site` attribute (Lax untuk perlindungan CSRF moderate, Strict untuk perlindungan maksimum, None yang berbahaya jika tidak disertai Secure flag), `domain` attribute (apakah terlalu broad seperti `.example.com` yang berlaku untuk semua subdomain), `path` attribute (apakah terlalu permissive seperti `/`), `expires` atau `max-age` (apakah session cookie tanpa expiration yang membuat session tetap hidup selamanya). Implementasi `detect_session_fixation()`: memeriksa apakah session cookie tidak memiliki `secure` dan `httpOnly` flags yang membuatnya rentan terhadap session fixation attacks. Generate `CookieReport` dengan list cookies, masing-masing dengan flags status, dan overall security score.
+
+---
+
+#### **3. `cve_checker.py` (Python)**
+
+**Tugas:** Mencocokkan versi software dan library yang terdeteksi dengan database CVE untuk menemukan kerentanan yang diketahui.
+
+**Tujuan:** File ini memuat database CVE dari `cve_data.json` yang di-download dari NVD API secara periodik. Database berisi: `cve_id` (identifikasi kerentanan), `description` (deskripsi kerentanan), `cvss_v3_score` (severity score 0-10), `cvss_v3_vector` (CVSS vector string), `affected_software` (daftar software dengan name dan version_ranges). Implementasi `check_software(software: str, version: str) -> List[CveMatch]` yang mengiterasi CVE database dan mencari yang affected_software matching. Untuk version matching, implementasi version parsing dengan `packaging.version` untuk semantic versioning (contoh: version 2.4.3 vulnerable if version <= 2.4.3). Implementasi `check_cpe(cpe: str)` untuk CPE identifiers matching (format: `cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*`). Generate `CveReport` dengan list vulnerabilities yang ditemukan, masing-masing dengan severity (critical jika CVSS >= 9.0, high jika >= 7.0, medium jika >= 4.0, low jika < 4.0), CVSS score, description, dan links ke NVD.
+
+---
+
+#### **4. `xss_detector.rs` (Rust)**
+
+**Tugas:** Mendeteksi potensi Cross-Site Scripting (XSS) vulnerabilities pada website.
+
+**Tujuan:** File ini menguji semua input fields dan parameter URL untuk berbagai jenis XSS. `detect_reflected_xss()` meng-inject payloads ke parameter URL (contoh: `?q=<script>alert(1)</script>`), melakukan request ke page, dan mencari payload dalam response untuk melihat apakah tidak di-encode dengan benar. Payload list dari `xss-payload-list` mencakup `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`, `"><script>alert(1)</script>`, `javascript:alert(1)`, `<svg/onload=alert(1)>`. `detect_dom_xss()` menggunakan AST analysis dari JavaScript untuk mendeteksi `document.write()` dengan input user, `innerHTML` assignment dengan data yang tidak aman, `eval()` dengan user-controlled data, `setTimeout()` dengan string. `context_aware_detection()` untuk HTML context (apakah payload masuk ke dalam tag HTML, attribute value, atau JavaScript string) untuk menentukan apakah context-appropriate escaping dilakukan. Generate `XssReport` dengan list potential XSS points, each with context, payload yang digunakan, dan confidence level (high jika payload ditemukan dalam response tanpa encoding).
+
+---
+
+#### **5. `sql_injection_detector.rs` (Rust)**
+
+**Tugas:** Mendeteksi potensi SQL Injection vulnerabilities pada website.
+
+**Tujuan:** File ini menguji semua parameter URL, form fields, dan API endpoints dengan berbagai teknik SQL injection. `detect_error_based()` meng-inject payloads seperti `' OR '1'='1`, `' UNION SELECT NULL--`, `' AND SLEEP(5)--`, `' OR 1=1--` dan mengekstrak database error messages dengan `error_patterns` yang match `MySQL` (You have an error in your SQL syntax), `PostgreSQL` (ERROR: syntax error at or near), `MS SQL` (Unclosed quotation mark), `Oracle` (ORA-01756: quoted string not properly terminated). `detect_blind_boolean()` membandingkan response antara `AND 1=1` dan `AND 1=2`; jika berbeda, maka possible blind boolean injection (karena kondisi true vs false menghasilkan response yang berbeda). `detect_blind_time()` menggunakan `AND SLEEP(5)` dan mengukur response time; jika response time > 3 seconds, maka possible time-based blind injection. Generate `SqlReport` dengan list potential SQLi points, type of vulnerability (error-based, boolean-based, time-based, union-based), database type detected, dan confidence level.
+
+---
+
+#### **6. `csrf_analyzer.rs` (Rust)**
+
+**Tugas:** Menganalisis implementasi Cross-Site Request Forgery (CSRF) protection pada website.
+
+**Tujuan:** File ini memeriksa setiap form di website untuk melihat apakah ada perlindungan CSRF. Untuk setiap form, periksa apakah ada hidden input dengan `name` mengandung: `csrf_token`, `_token`, `csrfmiddlewaretoken`, `authenticity_token`, `csrf-token`, `xsrf-token`. Periksa apakah form menggunakan method `POST` (CSRF hanya relevan untuk state-changing operations). Periksa apakah cookie memiliki `SameSite` attribute: jika `None` maka vulnerable, jika `Lax` maka partially protected, jika `Strict` maka protected (karena browser tidak akan mengirim cookie untuk cross-site requests). Implementasi `check_referer_header()`: memeriksa apakah `Referrer-Policy` header cukup ketat (`no-referrer`, `same-origin`, `strict-origin-when-cross-origin`) untuk mencegah CSRF via referer validation. Implementasi `token_mutation_analysis()`: mengekstrak CSRF token, memodifikasi sedikit (ubah satu karakter), submit form, periksa apakah request diterima (tanda token tidak divalidasi dengan benar). Generate `CsrfReport` dengan list forms yang vulnerable, each with csrf_token presence, same_site status, dan overall vulnerability level.
+
+---

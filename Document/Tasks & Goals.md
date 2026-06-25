@@ -1,11 +1,11 @@
-Here I will explain the tasks and purposes of each file and folder in the directory architecture.
-let's get started
+**Here I will explain the tasks and purposes of each file and folder in the directory architecture.
+let's get started**
 
-explanation of each file in the root directory:
+**explanation of each file in the root directory:**
 
 ---
 
-Alright, I will explain sequentially each folder and its contents. Let's start with the files in the project root first.
+**Alright, I will explain sequentially each folder and its contents. Let's start with the files in the project root first.**
 
 ---
 
@@ -93,7 +93,7 @@ Alright, I will explain sequentially each folder and its contents. Let's start w
 
 ---
 
-Indonesian:
+**Indonesian:**
 
 ---
 
@@ -181,7 +181,7 @@ Indonesian:
 
 ---
 
-Explanation of each file in the core folder section of the directory architecture:Explanation of each file in the core folder section of the directory architecture:
+**Explanation of each file in the core folder section of the directory architecture:Explanation of each file in the core folder section of the directory architecture:**
 
 ---
 
@@ -237,7 +237,7 @@ Explanation of each file in the core folder section of the directory architectur
 
 ---
 
-Indonesian:
+**indonesian:**
 
 ---
 
@@ -293,7 +293,7 @@ Indonesian:
 
 ---
 
-Explanation of the network section modules folder:
+**Explanation of the network section modules folder:**
 
 ---
 
@@ -350,7 +350,7 @@ Explanation of the network section modules folder:
 
 ---
 
-Indonesian:
+**indonesian:**
 
 ---
 
@@ -403,7 +403,7 @@ Indonesian:
 
 ---
 
-Explanation of the modules folder content section:
+**Explanation of the modules folder content section:**
 
 ---
 
@@ -449,7 +449,7 @@ Explanation of the modules folder content section:
 
 ---
 
-Indonesian:
+**Indonesian:**
 
 ---
 
@@ -495,7 +495,7 @@ Indonesian:
 
 ---
 
-Explanation of the modules folder security section:
+**Explanation of the modules folder security section:**
 
 ---
 
@@ -549,7 +549,7 @@ Explanation of the modules folder security section:
 
 ---
 
-Indonesian:
+**Indonesian:**
 
 ---
 
@@ -603,7 +603,7 @@ Indonesian:
 
 ---
 
-Explanation of the modules folder infrastructure section:
+**Explanation of the modules folder infrastructure section:**
 
 ---
 
@@ -649,7 +649,7 @@ Explanation of the modules folder infrastructure section:
 
 ---
 
-Indonesian:
+**Indonesian:**
 
 ---
 
@@ -695,7 +695,7 @@ l## 📂 **`modules/infrastructure/` - Infrastruktur & Hosting**
 
 ---
 
-Explanation of the modules folder intelligence section:
+**Explanation of the modules folder intelligence section:**
 
 ---
 
@@ -733,7 +733,7 @@ Explanation of the modules folder intelligence section:
 
 ---
 
-Indonesian:
+**Indonesian:**
 
 ---
 
@@ -771,7 +771,7 @@ Indonesian:
 
 ---
 
-Agent folder explanation:
+**Agent folder explanation:**
 
 ---
 
@@ -827,7 +827,7 @@ Agent folder explanation:
 
 ---
 
-Indonesian:
+**Indonesian:**
 
 ---
 
@@ -883,7 +883,7 @@ Indonesian:
 
 ---
 
-models folder explanation:
+**models folder explanation:**
 
 ---
 
@@ -931,7 +931,7 @@ models folder explanation:
 
 ---
 
-Indonesian:
+**Indonesian:**
 
 ---
 
@@ -976,6 +976,134 @@ Indonesian:
 **Tugas:** Menghitung risk score secara komprehensif berdasarkan CVSS dan business context.
 
 **Tujuan:** File ini mengimplementasikan perhitungan risk score menggunakan CVSS v3.1 metrics. CVSS vector components: `AV` (Attack Vector: Network, Adjacent, Local, Physical), `AC` (Attack Complexity: Low, High), `PR` (Privileges Required: None, Low, High), `UI` (User Interaction: None, Required), `S` (Scope: Unchanged, Changed), `C` (Confidentiality Impact: None, Low, High), `I` (Integrity Impact: None, Low, High), `A` (Availability Impact: None, Low, High). Calculate base score using formula: `If (Impact <= 0) base = 0; else base = min(10, 8.22 * Exploitability * Impact)`. Impact = 1 - (1-C) * (1-I) * (1-A) for scope unchanged, atau 1 - (1-C) * (1-I) * (1-A) * 1.08 for scope changed. Exploitability = 8.22 * AV * AC * PR * UI. Tambahkan business factor: `asset_value` (nilai aset yang terkena dampak: low, medium, high, critical), `data_sensitivity` (sensitivitas data: public, internal, confidential, restricted), `regulatory_impact` (dampak regulasi: None, GDPR, HIPAA, PCI-DSS). Implementasi `calculate_temporal_score()` untuk incorporate temporal metrics (exploit code maturity, remediation level, report confidence). Implementasi `calculate_environmental_score()` untuk adjust berdasarkan environment (security requirements: low, medium, high untuk confidentiality, integrity, availability). Hasilkan `RiskScore` struct dengan fields: `base_score: f64`, `temporal_score: f64`, `environmental_score: f64`, `business_score: f64`, `priority: Priority` (P0-Critical, P1-High, P2-Medium, P3-Low, P4-Info). Implementasi `generate_recommendations()` untuk memberikan rekomendasi remediasi berdasarkan score dan vulnerability type.
+
+---
+
+**storage folder explanation:**
+
+---
+
+## 📂 **`storage/` - DATA STORAGE**
+
+---
+
+#### **1. `data_warehouse.rs` (Rust)**
+
+**Task:** Manage main data storage with indexing, versioning, and query optimization.
+
+**Purpose:** This file serves as the central data warehouse that aggregates all data from various sources. Implements `store_data(key: &str, data: &[u8]) -> Result<()>` with sharding based on `shard_key` to distribute data evenly and prevent bottlenecks on a single storage node. Implements `query_data(query: Query) -> Result<Vec<Data>>` with multiple indexing strategies in memory: `HashSet` for fast exact key lookup (O(1)), `BTreeMap` for range queries (O(log n)), `InvertedIndex` for full-text search on content. Implements `compact()` for data deduplication (removing duplicate entries) and compression using `Snappy` or `LZ4` to save storage space. Implements `versioning()` with `timestamp` per entry: each data update creates a new version, supports `get_version(key: &str, version: &str) -> Result<Data>` for rollback to previous versions. Implements `data_retention_policy()`: automatically archive data older than 90 days to cold storage and delete data older than 365 days according to retention policy. Implements `backup_trigger()` to perform automatic backups every 24 hours to the specified location.
+
+---
+
+#### **2. `json_handler.rs` (Rust)**
+
+**Task:** Handle serialization and deserialization of data to and from JSON format.
+
+**Purpose:** This file manages all JSON-related operations. Implements `to_json<T: Serialize>(data: &T) -> Result<String>` using `serde_json::to_string_pretty()` with `Serialize` trait to produce formatted JSON with indentation for human readability. Implements `from_json<T: Deserialize>(data: &str) -> Result<T>` using `serde_json::from_str()` with `Deserialize` trait for parsing JSON into Rust data structures. Implements `validate_json(data: &str, schema: &JsonSchema)` using `jsonschema` library to validate that JSON conforms to the specified schema (e.g., ensuring required fields exist, data types are correct). Implements `transform_json(data: &str, jq: &str)` using `jq` JSON processor to query and transform JSON data (e.g., `.data | map(select(.severity == "critical"))` to filter critical findings). Implements `pretty_print(data: &str) -> String` to format JSON with consistent indentation. Implements `stream_json()` to handle large JSON streaming (over 100MB) without loading entire data into memory.
+
+---
+
+#### **3. `txt_generator.rs` (Rust)**
+
+**Task:** Generate text files with specific formatting for various purposes.
+
+**Purpose:** This file produces text output in various formats. Implements `generate(data: &StructuredData) -> String` which can produce: `markdown` syntax with `#` for headers, `|` for tables, `-` for lists, ` ``` ` for code blocks. `ASCII tables` with column widths computed based on content (find maximum width of each column), format with `+---+` separators and `|` vertical separators. `structured logging` with KV format `key=value` and escaping for values containing spaces or special characters. `plain text reports` with section headers, bullet points, and numbered lists. Implements `markdown_to_txt()` to convert markdown to plain text for compatibility with systems that do not support markdown. Implements `table_to_txt()` to convert tables to neatly formatted text with alignment (left, center, right) based on data type. Implements `generate_summary()` to create a brief summary of data in text format.
+
+---
+
+#### **4. `docs_builder.rs` (Rust)**
+
+**Task:** Build comprehensive documentation with template engine and professional formatting.
+
+**Purpose:** This file uses `handlebars` template engine for rendering documentation with customizable templates. Template variables: `{{#each findings}}` for iterating findings, `{{severity}}` to display severity, `{{description}}` for description, `{{remediation}}` for remediation recommendations, `{{#if condition}}` for conditional rendering. Implements `generate_toc()` for table of contents based on heading levels (h1, h2, h3) with page numbers. Implements `cross_reference()` for internal links between sections (e.g., "see section 3.2 for details"). Implements `bibliography()` for reference list with APA or IEEE style formatting. Implements `generate_cover_page()` to create a cover page with document title, date, version, and author. Implements `apply_template()` to apply user-selected template (default, professional, minimal, dark). Implements `export_docs(format: DocFormat)` to export in DOCX, ODT, or HTML format.
+
+---
+
+#### **5. `csv_exporter.rs` (Rust)**
+
+**Task:** Export and import data in CSV format for spreadsheet analysis.
+
+**Purpose:** This file uses the `csv` crate to handle CSV operations. Implements `export<T: Serialize>(data: &[T]) -> Result<String>` which detects headers from struct fields with `serde` rename attribute for custom column names. Escapes values containing delimiters or newlines with quotes. Implements `export_with_schema(data: &[T], schema: &Schema)` for custom column mapping - allows users to specify which columns to export and their order. Implements `import<T: Deserialize>(data: &str) -> Result<Vec<T>>` to import data from CSV into Rust structures. Supports multiple delimiter options: comma (,), semicolon (;), tab (\t), and custom delimiters. Type inference: automatically determines data type for each column (string, integer, float, boolean, datetime). Implements `quote_strategy`: always (quote all values), never (never quote), when_necessary (quote only if containing delimiter or newline). Implements `null_handling()` to handle null values: replace with empty string, "NULL", or custom placeholder. Implements `export_large_dataset()` to export large datasets (millions of rows) with streaming to avoid memory overload.
+
+---
+
+#### **6. `html_reporter.rs` (Rust)**
+
+**Task:** Generate interactive and responsive HTML reports.
+
+**Purpose:** This file uses `handlebars` with HTML templates to generate reports that can be opened in a browser. Integrates `Chart.js` for data visualization: bar charts for severity distribution, pie charts for vulnerability type percentages, line charts for activity timeline, radar charts for comparing multiple metrics. Implements `interactive_tables()` with JavaScript `DataTable` library for sorting (click header to sort), filtering (text box per column), pagination (show 10/25/50/100 rows per page). Implements `responsive_design()` with CSS media queries for adaptation to various screen sizes (desktop, tablet, mobile). Implements `print_styles()` for print optimization: hide interactive elements, show all content, add page breaks, remove background colors. Implements `dark_mode_toggle()` with CSS variables and JavaScript to toggle between light and dark themes. Implements `export_html()` to save the report as an HTML file that can be opened offline. Implements `embed_images()` to embed images (screenshots, charts) as base64 so the report is self-contained without external dependencies.
+
+---
+
+#### **7. `pdf_generator.py` (Python)**
+
+**Task:** Generate professional PDFs with formatting and security features.
+
+**Purpose:** This file uses `pdfkit` (wkhtmltopdf wrapper) or `WeasyPrint` to generate PDF from HTML. Implements `generate_pdf(html: str, options: dict) -> bytes` with options: margins (top, bottom, left, right in mm), page size (A4, Letter, Legal), orientation (portrait, landscape), font size, and page numbering. Implements `add_watermark(pdf: bytes, watermark_text: str) -> bytes` using `PyPDF2` to overlay watermark text (diagonal) on each page with 0.3 opacity. Implements `add_signature(pdf: bytes, signature_image: bytes) -> bytes` to insert digital signature image on the last page with timestamp. Implements `add_metadata()` to add PDF metadata: title, author, subject, keywords, creation date. Implements `encrypt_pdf()` with AES-128 encryption for password protection with user password and owner password. Implements `generate_from_template(data: dict, template_path: str) -> bytes` with `jinja2` rendering for customizable PDF templates. Implements `add_table_of_contents()` to generate TOC with accurate page numbers. Implements `add_headers_footers()` to add headers (section title) and footers (page number, company name) on every page.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`storage/` - PENYIMPANAN DATA**
+
+---
+
+#### **1. `data_warehouse.rs` (Rust)**
+
+**Tugas:** Mengelola penyimpanan data utama dengan indexing, versioning, dan query optimization.
+
+**Tujuan:** File ini berfungsi sebagai gudang data sentral yang mengagregasi semua data dari berbagai sumber. Implementasi `store_data(key: &str, data: &[u8]) -> Result<()>` dengan sharding berdasarkan `shard_key` untuk mendistribusikan data secara merata dan mencegah bottleneck pada satu storage node. Implementasi `query_data(query: Query) -> Result<Vec<Data>>` dengan multiple indexing strategies di memory: `HashSet` untuk fast exact key lookup (O(1)), `BTreeMap` untuk range queries (O(log n)), `InvertedIndex` untuk full-text search pada konten. Implementasi `compact()` untuk data deduplication (menghapus duplicate entries) dan compression menggunakan `Snappy` atau `LZ4` untuk menghemat ruang penyimpanan. Implementasi `versioning()` dengan `timestamp` per entry: setiap update data membuat version baru, support `get_version(key: &str, version: &str) -> Result<Data>` untuk rollback ke versi sebelumnya. Implementasi `data_retention_policy()`: automatic archive data older than 90 days ke cold storage dan delete data older than 365 days sesuai kebijakan retensi. Implementasi `backup_trigger()` untuk melakukan backup otomatis setiap 24 jam ke lokasi yang ditentukan.
+
+---
+
+#### **2. `json_handler.rs` (Rust)**
+
+**Tugas:** Menangani serialisasi dan deserialisasi data ke dan dari format JSON.
+
+**Tujuan:** File ini mengelola semua operasi terkait JSON. Implementasi `to_json<T: Serialize>(data: &T) -> Result<String>` menggunakan `serde_json::to_string_pretty()` dengan `Serialize` trait untuk menghasilkan JSON yang diformat dengan indentation untuk human readability. Implementasi `from_json<T: Deserialize>(data: &str) -> Result<T>` menggunakan `serde_json::from_str()` dengan `Deserialize` trait untuk parsing JSON ke struktur data Rust. Implementasi `validate_json(data: &str, schema: &JsonSchema)` menggunakan `jsonschema` library untuk memvalidasi bahwa JSON sesuai dengan schema yang ditentukan (misal: memastikan field required ada, tipe data sesuai). Implementasi `transform_json(data: &str, jq: &str)` menggunakan `jq` JSON processor untuk query dan transform data JSON (contoh: `.data | map(select(.severity == "critical"))` untuk filter temuan critical). Implementasi `pretty_print(data: &str) -> String` untuk memformat JSON dengan indentation yang konsisten. Implementasi `stream_json()` untuk menangani JSON streaming yang besar (lebih dari 100MB) tanpa loading seluruh data ke memory.
+
+---
+
+#### **3. `txt_generator.rs` (Rust)**
+
+**Tugas:** Mengenerate file teks dengan formatting khusus untuk berbagai keperluan.
+
+**Tujuan:** File ini menghasilkan output teks dalam berbagai format. Implementasi `generate(data: &StructuredData) -> String` yang dapat menghasilkan: `markdown` syntax dengan `#` untuk headers, `|` untuk tables, `-` untuk lists, ` ``` ` untuk code blocks. `ASCII tables` dengan compute column widths based on content (cari lebar maksimum setiap kolom), format with `+---+` separators dan `|` vertical separators. `structured logging` dengan KV format `key=value` dan escaping untuk nilai yang mengandung spasi atau special characters. `plain text reports` dengan section headers, bullet points, dan numbered lists. Implementasi `markdown_to_txt()` untuk convert markdown ke plain text untuk compatibility dengan sistem yang tidak support markdown. Implementasi `table_to_txt()` untuk convert tabel ke format teks yang rapi dengan alignment (left, center, right) berdasarkan tipe data. Implementasi `generate_summary()` untuk membuat ringkasan singkat dari data dalam format teks.
+
+---
+
+#### **4. `docs_builder.rs` (Rust)**
+
+**Tugas:** Membangun dokumentasi lengkap dengan template engine dan formatting profesional.
+
+**Tujuan:** File ini menggunakan `handlebars` template engine untuk rendering dokumentasi dengan template yang dapat disesuaikan. Template variables: `{{#each findings}}` untuk iterasi findings, `{{severity}}` untuk menampilkan severity, `{{description}}` untuk deskripsi, `{{remediation}}` untuk rekomendasi perbaikan, `{{#if condition}}` untuk conditional rendering. Implementasi `generate_toc()` untuk table of contents berdasarkan heading levels (h1, h2, h3) dengan page numbers. Implementasi `cross_reference()` untuk internal links antar sections (contoh: "see section 3.2 for details"). Implementasi `bibliography()` untuk reference list dengan formatting APA atau IEEE style. Implementasi `generate_cover_page()` untuk membuat halaman sampul dengan judul dokumen, tanggal, versi, dan author. Implementasi `apply_template()` untuk menerapkan template yang dipilih pengguna (default, professional, minimal, dark). Implementasi `export_docs(format: DocFormat)` untuk mengekspor dalam format DOCX, ODT, atau HTML.
+
+---
+
+#### **5. `csv_exporter.rs` (Rust)**
+
+**Tugas:** Mengekspor dan mengimpor data dalam format CSV untuk analisis spreadsheet.
+
+**Tujuan:** File ini menggunakan `csv` crate untuk menangani operasi CSV. Implementasi `export<T: Serialize>(data: &[T]) -> Result<String>` yang mendeteksi headers dari struct fields dengan `serde` rename attribute untuk custom column names. Escape values yang mengandung delimiter atau newline dengan quotes. Implementasi `export_with_schema(data: &[T], schema: &Schema)` untuk custom column mapping - memungkinkan user menentukan kolom mana yang akan diekspor dan urutannya. Implementasi `import<T: Deserialize>(data: &str) -> Result<Vec<T>>` untuk mengimpor data dari CSV ke struktur Rust. Mendukung multiple delimiter options: comma (,), semicolon (;), tab (\t), dan custom delimiters. Type inference: otomatis menentukan tipe data setiap kolom (string, integer, float, boolean, datetime). Implementasi `quote_strategy`: always (quote semua nilai), never (tidak pernah quote), when_necessary (quote hanya jika mengandung delimiter atau newline). Implementasi `null_handling()` untuk menangani null values: replace with empty string, "NULL", atau custom placeholder. Implementasi `export_large_dataset()` untuk mengekspor dataset besar (jutaan rows) dengan streaming untuk menghindari memory overload.
+
+---
+
+#### **6. `html_reporter.rs` (Rust)**
+
+**Tugas:** Mengenerate laporan HTML yang interaktif dan responsif.
+
+**Tujuan:** File ini menggunakan `handlebars` dengan HTML template untuk menghasilkan laporan yang dapat dibuka di browser. Integrasi `Chart.js` untuk visualisasi data: bar charts untuk distribusi severity, pie charts untuk persentase jenis vulnerability, line charts untuk timeline activity, radar charts untuk perbandingan multiple metrics. Implementasi `interactive_tables()` dengan JavaScript `DataTable` library untuk sorting (klik header untuk sort), filtering (text box per kolom), pagination (show 10/25/50/100 rows per page). Implementasi `responsive_design()` dengan CSS media queries untuk adaptasi ke berbagai ukuran layar (desktop, tablet, mobile). Implementasi `print_styles()` untuk print optimization: hide interactive elements, show all content, add page breaks, remove background colors. Implementasi `dark_mode_toggle()` dengan CSS variables dan JavaScript untuk toggle antara light dan dark theme. Implementasi `export_html()` untuk menyimpan laporan sebagai file HTML yang dapat dibuka offline. Implementasi `embed_images()` untuk menyisipkan gambar (screenshots, charts) sebagai base64 sehingga laporan mandiri tanpa external dependencies.
+
+---
+
+#### **7. `pdf_generator.py` (Python)**
+
+**Tugas:** Mengenerate PDF profesional dengan formatting dan security features.
+
+**Tujuan:** File ini menggunakan `pdfkit` (wkhtmltopdf wrapper) atau `WeasyPrint` untuk generate PDF dari HTML. Implementasi `generate_pdf(html: str, options: dict) -> bytes` dengan options: margins (top, bottom, left, right dalam mm), page size (A4, Letter, Legal), orientation (portrait, landscape), font size, dan page numbering. Implementasi `add_watermark(pdf: bytes, watermark_text: str) -> bytes` menggunakan `PyPDF2` untuk overlay watermark text (diagonal) pada setiap halaman dengan opacity 0.3. Implementasi `add_signature(pdf: bytes, signature_image: bytes) -> bytes` untuk menyisipkan digital signature image di halaman terakhir dengan timestamp. Implementasi `add_metadata()` untuk menambahkan metadata PDF: title, author, subject, keywords, creation date. Implementasi `encrypt_pdf()` dengan AES-128 encryption untuk password protection dengan user password dan owner password. Implementasi `generate_from_template(data: dict, template_path: str) -> bytes` dengan `jinja2` rendering untuk PDF template yang dapat disesuaikan. Implementasi `add_table_of_contents()` untuk generate TOC dengan page numbers yang akurat. Implementasi `add_headers_footers()` untuk menambahkan header (judul section) dan footer (page number, company name) di setiap halaman.
 
 ---
 

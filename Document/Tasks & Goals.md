@@ -492,3 +492,63 @@ Indonesian:
 **Tugas:** Membangun dan menganalisis graph hubungan antar link di website.
 
 **Tujuan:** File ini menggunakan `BFS` (Breadth-First Search) traversal untuk menjelajahi website dari start_url hingga depth_limit (default 3). Untuk setiap halaman yang dikunjungi, ekstrak semua `href` links menggunakan `html_parser`. Normalisasi URL dengan `Url::parse()` relative to base untuk mendapatkan URL absolut. Klasifikasikan link sebagai `internal` (same domain) atau `external` (different domain). Untuk setiap link, tambahkan edge di graph: `graph.add_edge(current_url, target_url)`. Implementasi `find_broken_links()` dengan concurrent HEAD requests menggunakan `reqwest` `Client::head()`, timeout 5s, dan record status codes (404, 410 untuk broken). Implementasi `detect_redirect_chains()` dengan follow redirects sampai max 10, catat chain untuk mendeteksi redirect yang tidak perlu (misal: /a -> /b -> /c -> /final). Implementasi `analyze_anchor_text()` untuk setiap link, ekstrak anchor text, dan lakukan frequency analysis untuk mendeteksi SEO patterns (over-optimization, keyword stuffing). Generate `LinkReport` dengan total internal links, external links, broken links, redirect chains, dan anchor text analysis.
+
+---
+
+Explanation of the modules folder security section:
+
+---
+
+## 📂 **`modules/security/` - Security Analysis**
+
+#### **1. `header_analyzer.rs` (Rust)**
+
+**Task:** Analyze HTTP response headers to evaluate website security configuration.
+
+**Purpose:** This file examines all HTTP response headers and provides a security score based on presence and correctness of configuration. For `HSTS` (HTTP Strict Transport Security): checks header, parses `max-age` (HTTPS enforcement duration), `includeSubDomains` (whether applies to subdomains), `preload` (whether ready for HSTS preload list). Scores: max-age >= 31536000 (1 year) score 10, >= 2592000 (30 days) score 8, < 30 days score 5, absent score 0. For `CSP` (Content Security Policy): parses header, checks `default-src` (fallback for all resources), `script-src` (allowed script sources), `style-src` (allowed style sources), detects presence of `unsafe-inline` (dangerous for XSS), `unsafe-eval` (dangerous for code injection). For `X-Frame-Options`: checks whether `DENY` (prevents all framing), `SAMEORIGIN` (only from same domain), or `ALLOW-FROM` (only from specific URL). For `X-XSS-Protection`: checks `1; mode=block` (active and blocking) vs `0` (disabled). Generates `HeaderSecurityScore` with percentage of total possible points.
+
+---
+
+#### **2. `cookie_scanner.rs` (Rust)**
+
+**Task:** Scan and analyze cookies set by the website to find insecure configurations.
+
+**Purpose:** This file extracts all `Set-Cookie` headers from responses and parses each cookie using the `cookie` crate. For each cookie, checks: `secure` flag (whether cookie is only sent over HTTPS - if not, vulnerable to session hijacking), `httpOnly` flag (whether cookie is inaccessible to JavaScript - if not, vulnerable to XSS), `same_site` attribute (Lax for moderate CSRF protection, Strict for maximum protection, None which is dangerous if not accompanied by Secure flag), `domain` attribute (whether too broad like `.example.com` that applies to all subdomains), `path` attribute (whether too permissive like `/`), `expires` or `max-age` (whether session cookie without expiration that keeps session alive forever). Implements `detect_session_fixation()`: checks whether session cookie lacks `secure` and `httpOnly` flags making it vulnerable to session fixation attacks. Generates `CookieReport` with list of cookies, each with flag statuses, and overall security score.
+
+---
+
+#### **3. `cve_checker.py` (Python)**
+
+**Task:** Match detected software and library versions against CVE database to find known vulnerabilities.
+
+**Purpose:** This file loads CVE database from `cve_data.json` periodically downloaded from NVD API. Database contains: `cve_id` (vulnerability identifier), `description` (vulnerability description), `cvss_v3_score` (severity score 0-10), `cvss_v3_vector` (CVSS vector string), `affected_software` (list of software with name and version_ranges). Implements `check_software(software: str, version: str) -> List[CveMatch]` that iterates CVE database and searches for matching affected_software. For version matching, implements version parsing with `packaging.version` for semantic versioning (e.g., version 2.4.3 vulnerable if version <= 2.4.3). Implements `check_cpe(cpe: str)` for CPE identifiers matching (format: `cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*`). Generates `CveReport` with list of found vulnerabilities, each with severity (critical if CVSS >= 9.0, high if >= 7.0, medium if >= 4.0, low if < 4.0), CVSS score, description, and links to NVD.
+
+---
+
+#### **4. `xss_detector.rs` (Rust)**
+
+**Task:** Detect potential Cross-Site Scripting (XSS) vulnerabilities on the website.
+
+**Purpose:** This file tests all input fields and URL parameters for various types of XSS. `detect_reflected_xss()` injects payloads into URL parameters (e.g., `?q=<script>alert(1)</script>`), makes request to the page, and searches for payload in response to see if it is not properly encoded. Payload list from `xss-payload-list` includes `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`, `"><script>alert(1)</script>`, `javascript:alert(1)`, `<svg/onload=alert(1)>`. `detect_dom_xss()` uses AST analysis from JavaScript to detect `document.write()` with user input, `innerHTML` assignment with unsafe data, `eval()` with user-controlled data, `setTimeout()` with string. `context_aware_detection()` for HTML context (whether payload goes into HTML tag, attribute value, or JavaScript string) to determine whether context-appropriate escaping is performed. Generates `XssReport` with list of potential XSS points, each with context, payload used, and confidence level (high if payload found in response without encoding).
+
+---
+
+#### **5. `sql_injection_detector.rs` (Rust)**
+
+**Task:** Detect potential SQL Injection vulnerabilities on the website.
+
+**Purpose:** This file tests all URL parameters, form fields, and API endpoints with various SQL injection techniques. `detect_error_based()` injects payloads like `' OR '1'='1`, `' UNION SELECT NULL--`, `' AND SLEEP(5)--`, `' OR 1=1--` and extracts database error messages with `error_patterns` matching `MySQL` (You have an error in your SQL syntax), `PostgreSQL` (ERROR: syntax error at or near), `MS SQL` (Unclosed quotation mark), `Oracle` (ORA-01756: quoted string not properly terminated). `detect_blind_boolean()` compares response between `AND 1=1` and `AND 1=2`; if different, then possible blind boolean injection (because true vs false condition yields different responses). `detect_blind_time()` uses `AND SLEEP(5)` and measures response time; if response time > 3 seconds, then possible time-based blind injection. Generates `SqlReport` with list of potential SQLi points, type of vulnerability (error-based, boolean-based, time-based, union-based), database type detected, and confidence level.
+
+---
+
+#### **6. `csrf_analyzer.rs` (Rust)**
+
+**Task:** Analyze Cross-Site Request Forgery (CSRF) protection implementation on the website.
+
+**Purpose:** This file examines every form on the website to see if CSRF protection exists. For each form, checks whether there is a hidden input with `name` containing: `csrf_token`, `_token`, `csrfmiddlewaretoken`, `authenticity_token`, `csrf-token`, `xsrf-token`. Checks whether form uses `POST` method (CSRF only relevant for state-changing operations). Checks whether cookie has `SameSite` attribute: if `None` then vulnerable, if `Lax` then partially protected, if `Strict` then protected (because browser will not send cookies for cross-site requests). Implements `check_referer_header()`: checks whether `Referrer-Policy` header is strict enough (`no-referrer`, `same-origin`, `strict-origin-when-cross-origin`) to prevent CSRF via referer validation. Implements `token_mutation_analysis()`: extracts CSRF token, modifies it slightly (change one character), submits form, checks whether request is accepted (sign that token is not properly validated). Generates `CsrfReport` with list of vulnerable forms, each with csrf_token presence, same_site status, and overall vulnerability level.
+
+---
+
+Indonesian:
+
+---

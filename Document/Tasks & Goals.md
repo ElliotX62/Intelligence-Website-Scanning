@@ -882,3 +882,100 @@ Indonesian:
 **Tujuan:** Agen ini mengelola lifecycle dari semua AI/ML models yang digunakan sistem. Implementasi `load_models()` yang melakukan load dari path lokal atau download dari registry (Hugging Face) jika versi baru tersedia. Model types: `MLScanner` (scikit-learn pickle untuk klasifikasi), `AnomalyDetector` (Rust implementation untuk anomaly detection), `NLPProcessor` (transformers untuk NLP tasks). Implementasi `run_inference(data: &[u8], model_name: &str) -> InferenceResult` dengan inference caching menggunakan `LruCache<String, InferenceResult>` untuk mengurangi redundant computation (cache berdasarkan hash dari input data). Implementasi `model_versioning()`: setiap model punya version tag, auto-update jika ada version baru di registry, dan rollback capability jika version baru menyebabkan performance degradation. Implementasi `distributed_inference()`: jika data besar, split across threads menggunakan `rayon` untuk parallel processing. Implementasi `model_health_check()` untuk memonitoring performa model (accuracy, latency, memory usage) dan alert jika performa turun di bawah threshold.
 
 ---
+
+models folder explanation:
+
+---
+
+## 📂 **`models/` - AI MODELS**
+
+---
+
+#### **1. `ml_scanner.py` (Python)**
+
+**Task:** Provide machine learning models for classification and security pattern detection.
+
+**Purpose:** This file implements a complete machine learning pipeline for detecting threat patterns. Implements `train()`: load dataset from CSV file containing feature vectors (response headers, status codes, content length, TTL, response time, etc.) and labels (benign, suspicious, malicious). Split data into train/test set (80/20). Train multiple models: RandomForestClassifier (for feature importance interpretation), Support Vector Machine (for high-dimensional data), Gradient Boosting (for high accuracy), Decision Trees (for interpretability). Hyperparameter tuning with `GridSearchCV` to find optimal parameters. Feature engineering: extract headers (HSTS, CSP, X-Frame-Options presence), response codes (200, 301, 302, 404, 500), content length, TTL, response time, number of external links, etc. Implements `predict(features: pd.DataFrame) -> Dict[str, float]` to generate predictions: `threat_probability` (0-1), `anomaly_score` (0-1), `classification` (benign, suspicious, malicious). Implements `explain_prediction()` with SHAP values for feature importance - explains why the model gave a particular prediction and which features were most influential. Implements `model_persistence()` to save and load models using `pickle` or `joblib`.
+
+---
+
+#### **2. `anomaly_detector.rs` (Rust)**
+
+**Task:** Detect anomalies in data using various statistical methods.
+
+**Purpose:** This file implements multiple anomaly detection techniques. Implements `fit(data: &[Vec<f64>])` using `IsolationForest` from Rust `linfa` or `ndarray` with custom implementation. Builds binary trees with `max_samples=256`, `n_trees=100` for isolation forest algorithm. Each tree isolates points with random splits, anomalies have shorter path lengths. Implements `detect(data: &[Vec<f64>]) -> Vec<Anomaly>` by computing anomaly score for each sample: score = 2^(-average_path_length / average_path_length_all). Implements `detect_time_series(series: &[f64]) -> Vec<Anomaly>` with `Z-score` method: calculate mean and standard deviation, points with Z-score > 3 are considered anomalies. Implements `IQR` method: detect outliers based on Interquartile Range, points outside Q1 - 1.5*IQR or Q3 + 1.5*IQR are considered anomalies. Implements `adaptive_threshold()`: dynamic threshold based on data distribution using `3-sigma` rule - threshold moves according to changes in data distribution. Implements `seasonal_anomaly_detection()` for time series with seasonal patterns: detrend data, decompose into seasonal, trend, residual, detect anomalies in residual.
+
+---
+
+#### **3. `pattern_recognizer.rs` (Rust)**
+
+**Task:** Recognize patterns in data using various pattern matching techniques.
+
+**Purpose:** This file implements multiple pattern recognition techniques. Implements `add_pattern(pattern: Pattern)` with compilation into Aho-Corasick automaton for efficient multiple pattern matching (O(n) time complexity). Pattern types: `regex` (regular expression patterns), `substring` (exact string matching), `regex_set` (multiple regex patterns). Implements `find_patterns(input: &str) -> Vec<PatternMatch>` by scanning input using automaton, recording all matches with positions (start, end, pattern_id). Implements `sequence_patterns()` to detect patterns in sequence data (packet sequences, behavior sequences): uses Dynamic Time Warping (DTW) for sequence alignment, Longest Common Subsequence (LCS) for pattern length. Uses `Boyer-Moore-Horspool` for fast substring search for single patterns. Implements `behavior_fingerprint()` to identify unique patterns that indicate specific attacks or activities: builds signature database from known attack patterns (SQL injection patterns, XSS patterns, header manipulation patterns). Implements `pattern_frequency_analysis()` to analyze pattern occurrence frequency and detect patterns that appear abnormally.
+
+---
+
+#### **4. `nlp_processor.py` (Python)**
+
+**Task:** Process natural language for information extraction and content analysis.
+
+**Purpose:** This file implements various NLP tasks using Hugging Face Transformers and spaCy. Implements `extract_entities(text: str) -> List[Entity]` using Hugging Face transformers `ner` pipeline with `dslim/bert-base-NER` model fine-tuned for cybersecurity domain. Extracts entity types: `ORG` (organization names), `PERSON` (person names), `LOCATION` (locations), `DATE` (dates), `MISC` (miscellaneous), `TECHNOLOGY` (framework, library, tool names), `VERSION` (software versions). Implements `sentiment_analysis(text: str) -> SentimentResult` using `textblob` or `vader` for sentiment polarity (positive, negative, neutral) and subjectivity (objective, subjective). Implements `summarize(text: str, max_length: int) -> str` using `facebook/bart-large-cnn` for abstractive summarization - produces summary that not only extracts sentences but rewrites with new words. Implements `topic_modeling(documents: List[str]) -> List[Topic]` with LDA (Latent Dirichlet Allocation) from `gensim` to find main topics in document collection, extracts top N topics with most representative words. Implements `keyword_extraction()` using `RAKE` (Rapid Automatic Keyword Extraction) or `YAKE` to extract important keywords from text.
+
+---
+
+#### **5. `risk_scorer.rs` (Rust)**
+
+**Task:** Calculate comprehensive risk scores based on CVSS and business context.
+
+**Purpose:** This file implements risk score calculation using CVSS v3.1 metrics. CVSS vector components: `AV` (Attack Vector: Network, Adjacent, Local, Physical), `AC` (Attack Complexity: Low, High), `PR` (Privileges Required: None, Low, High), `UI` (User Interaction: None, Required), `S` (Scope: Unchanged, Changed), `C` (Confidentiality Impact: None, Low, High), `I` (Integrity Impact: None, Low, High), `A` (Availability Impact: None, Low, High). Calculates base score using formula: `If (Impact <= 0) base = 0; else base = min(10, 8.22 * Exploitability * Impact)`. Impact = 1 - (1-C) * (1-I) * (1-A) for scope unchanged, or 1 - (1-C) * (1-I) * (1-A) * 1.08 for scope changed. Exploitability = 8.22 * AV * AC * PR * UI. Adds business factors: `asset_value` (asset value affected: low, medium, high, critical), `data_sensitivity` (data sensitivity: public, internal, confidential, restricted), `regulatory_impact` (regulatory impact: None, GDPR, HIPAA, PCI-DSS). Implements `calculate_temporal_score()` to incorporate temporal metrics (exploit code maturity, remediation level, report confidence). Implements `calculate_environmental_score()` to adjust based on environment (security requirements: low, medium, high for confidentiality, integrity, availability). Generates `RiskScore` struct with fields: `base_score: f64`, `temporal_score: f64`, `environmental_score: f64`, `business_score: f64`, `priority: Priority` (P0-Critical, P1-High, P2-Medium, P3-Low, P4-Info). Implements `generate_recommendations()` to provide remediation recommendations based on score and vulnerability type.
+
+---
+
+Indonesian:
+
+---
+
+## 📂 **`models/` - MODEL AI**
+
+---
+
+#### **1. `ml_scanner.py` (Python)**
+
+**Tugas:** Menyediakan model machine learning untuk klasifikasi dan deteksi pola keamanan.
+
+**Tujuan:** File ini mengimplementasikan pipeline machine learning lengkap untuk mendeteksi threat patterns. Implementasi `train()`: load dataset dari CSV file yang berisi feature vectors (response headers, status codes, content length, TTL, response time, etc) dan labels (benign, suspicious, malicious). Split data menjadi train/test set (80/20). Train multiple models: RandomForestClassifier (untuk interpretasi feature importance), Support Vector Machine (untuk high-dimensional data), Gradient Boosting (untuk high accuracy), Decision Trees (untuk interpretability). Tuning hyperparameters dengan `GridSearchCV` untuk mencari parameter optimal. Feature engineering: extract headers (HSTS, CSP, X-Frame-Options presence), response codes (200, 301, 302, 404, 500), content length, TTL, response time, number of external links, etc. Implementasi `predict(features: pd.DataFrame) -> Dict[str, float]` untuk menghasilkan predictions: `threat_probability` (0-1), `anomaly_score` (0-1), `classification` (benign, suspicious, malicious). Implementasi `explain_prediction()` dengan SHAP values untuk feature importance - menjelaskan mengapa model memberikan prediksi tertentu dan feature apa yang paling berpengaruh. Implementasi `model_persistence()` untuk save dan load model menggunakan `pickle` atau `joblib`.
+
+---
+
+#### **2. `anomaly_detector.rs` (Rust)**
+
+**Tugas:** Mendeteksi anomali dalam data menggunakan berbagai statistical methods.
+
+**Tujuan:** File ini mengimplementasikan multiple anomaly detection techniques. Implementasi `fit(data: &[Vec<f64>])` menggunakan `IsolationForest` dari Rust `linfa` atau `ndarray` dengan custom implementation. Build binary trees dengan `max_samples=256`, `n_trees=100` untuk isolation forest algorithm. Setiap tree mengisolasi points dengan random splits, anomalies memiliki path length yang lebih pendek. Implementasi `detect(data: &[Vec<f64>]) -> Vec<Anomaly>` dengan compute anomaly score untuk setiap sample: score = 2^(-average_path_length / average_path_length_all). Implementasi `detect_time_series(series: &[f64]) -> Vec<Anomaly>` dengan `Z-score` method: hitung mean dan standard deviation, point dengan Z-score > 3 dianggap anomaly. Implementasi `IQR` method: detect outliers based on Interquartile Range, points outside Q1 - 1.5*IQR atau Q3 + 1.5*IQR dianggap anomaly. Implementasi `adaptive_threshold()`: dynamic threshold based on data distribution using `3-sigma` rule - threshold bergerak sesuai dengan perubahan distribusi data. Implementasi `seasonal_anomaly_detection()` untuk time series dengan pola musiman: detrend data, decompose into seasonal, trend, residual, detect anomalies in residual.
+
+---
+
+#### **3. `pattern_recognizer.rs` (Rust)**
+
+**Tugas:** Mengenali pola dalam data menggunakan berbagai teknik pattern matching.
+
+**Tujuan:** File ini mengimplementasikan multiple pattern recognition techniques. Implementasi `add_pattern(pattern: Pattern)` dengan compile ke Aho-Corasick automaton untuk multiple pattern matching yang efisien (O(n) time complexity). Pattern types: `regex` (regular expression patterns), `substring` (exact string matching), `regex_set` (multiple regex patterns). Implementasi `find_patterns(input: &str) -> Vec<PatternMatch>` dengan scan input using automaton, record all matches with positions (start, end, pattern_id). Implementasi `sequence_patterns()` untuk detect patterns in sequence data (packet sequences, behavior sequences): menggunakan Dynamic Time Warping (DTW) untuk sequence alignment, Longest Common Subsequence (LCS) untuk pattern length. Menggunakan `Boyer-Moore-Horspool` untuk substring search yang cepat untuk single pattern. Implementasi `behavior_fingerprint()` untuk identify unique patterns that indicate specific attacks or activities: build signature database dari known attack patterns (SQL injection patterns, XSS patterns, header manipulation patterns). Implementasi `pattern_frequency_analysis()` untuk menganalisis frekuensi kemunculan pattern dan mendeteksi pattern yang muncul secara tidak normal.
+
+---
+
+#### **4. `nlp_processor.py` (Python)**
+
+**Tugas:** Memproses bahasa alami untuk ekstraksi informasi dan analisis konten.
+
+**Tujuan:** File ini mengimplementasikan berbagai NLP tasks menggunakan Hugging Face Transformers dan spaCy. Implementasi `extract_entities(text: str) -> List[Entity]` menggunakan Hugging Face transformers `ner` pipeline dengan model `dslim/bert-base-NER` yang di-fine-tune untuk cybersecurity domain. Ekstrak entity types: `ORG` (organization names), `PERSON` (person names), `LOCATION` (locations), `DATE` (dates), `MISC` (miscellaneous), `TECHNOLOGY` (framework, library, tool names), `VERSION` (software versions). Implementasi `sentiment_analysis(text: str) -> SentimentResult` menggunakan `textblob` atau `vader` untuk sentiment polarity (positive, negative, neutral) dan subjectivity (objective, subjective). Implementasi `summarize(text: str, max_length: int) -> str` menggunakan `facebook/bart-large-cnn` untuk abstractive summarization - menghasilkan ringkasan yang tidak hanya mengekstrak kalimat tetapi menulis ulang dengan kata-kata baru. Implementasi `topic_modeling(documents: List[str]) -> List[Topic]` dengan LDA (Latent Dirichlet Allocation) from `gensim` untuk menemukan topik-topik utama dalam kumpulan dokumen, ekstrak top N topics dengan kata-kata yang paling representatif. Implementasi `keyword_extraction()` menggunakan `RAKE` (Rapid Automatic Keyword Extraction) atau `YAKE` untuk mengekstrak keyword penting dari teks.
+
+---
+
+#### **5. `risk_scorer.rs` (Rust)**
+
+**Tugas:** Menghitung risk score secara komprehensif berdasarkan CVSS dan business context.
+
+**Tujuan:** File ini mengimplementasikan perhitungan risk score menggunakan CVSS v3.1 metrics. CVSS vector components: `AV` (Attack Vector: Network, Adjacent, Local, Physical), `AC` (Attack Complexity: Low, High), `PR` (Privileges Required: None, Low, High), `UI` (User Interaction: None, Required), `S` (Scope: Unchanged, Changed), `C` (Confidentiality Impact: None, Low, High), `I` (Integrity Impact: None, Low, High), `A` (Availability Impact: None, Low, High). Calculate base score using formula: `If (Impact <= 0) base = 0; else base = min(10, 8.22 * Exploitability * Impact)`. Impact = 1 - (1-C) * (1-I) * (1-A) for scope unchanged, atau 1 - (1-C) * (1-I) * (1-A) * 1.08 for scope changed. Exploitability = 8.22 * AV * AC * PR * UI. Tambahkan business factor: `asset_value` (nilai aset yang terkena dampak: low, medium, high, critical), `data_sensitivity` (sensitivitas data: public, internal, confidential, restricted), `regulatory_impact` (dampak regulasi: None, GDPR, HIPAA, PCI-DSS). Implementasi `calculate_temporal_score()` untuk incorporate temporal metrics (exploit code maturity, remediation level, report confidence). Implementasi `calculate_environmental_score()` untuk adjust berdasarkan environment (security requirements: low, medium, high untuk confidentiality, integrity, availability). Hasilkan `RiskScore` struct dengan fields: `base_score: f64`, `temporal_score: f64`, `environmental_score: f64`, `business_score: f64`, `priority: Priority` (P0-Critical, P1-High, P2-Medium, P3-Low, P4-Info). Implementasi `generate_recommendations()` untuk memberikan rekomendasi remediasi berdasarkan score dan vulnerability type.
+
+---
+

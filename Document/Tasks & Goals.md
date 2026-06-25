@@ -602,3 +602,96 @@ Indonesian:
 **Tujuan:** File ini memeriksa setiap form di website untuk melihat apakah ada perlindungan CSRF. Untuk setiap form, periksa apakah ada hidden input dengan `name` mengandung: `csrf_token`, `_token`, `csrfmiddlewaretoken`, `authenticity_token`, `csrf-token`, `xsrf-token`. Periksa apakah form menggunakan method `POST` (CSRF hanya relevan untuk state-changing operations). Periksa apakah cookie memiliki `SameSite` attribute: jika `None` maka vulnerable, jika `Lax` maka partially protected, jika `Strict` maka protected (karena browser tidak akan mengirim cookie untuk cross-site requests). Implementasi `check_referer_header()`: memeriksa apakah `Referrer-Policy` header cukup ketat (`no-referrer`, `same-origin`, `strict-origin-when-cross-origin`) untuk mencegah CSRF via referer validation. Implementasi `token_mutation_analysis()`: mengekstrak CSRF token, memodifikasi sedikit (ubah satu karakter), submit form, periksa apakah request diterima (tanda token tidak divalidasi dengan benar). Generate `CsrfReport` dengan list forms yang vulnerable, each with csrf_token presence, same_site status, dan overall vulnerability level.
 
 ---
+
+Explanation of the modules folder infrastructure section:
+
+---
+
+## 📂 **`modules/infrastructure/` - Infrastructure & Hosting**
+
+#### **1. `server_fingerprint.rs` (Rust)**
+
+**Task:** Detect the type of web server used by the website and its version.
+
+**Purpose:** This file analyzes response headers and server behavior to identify the type and version of the web server. For `Server` header, parse the value to detect server type (Apache, Nginx, Microsoft IIS, Lighttpd, Caddy, Tomcat, Jetty) and version. If header is absent or removed (common security practice), use behavioral analysis: request non-existent path (`/nonexistent-xyz`), analyze `404` error page format (Apache has different format compared to Nginx, IIS has typical Windows error page). Use `Wappalyzer` patterns to detect server and framework based on response patterns. Implements `detect_os()` from TTL value (Time-To-Live): Windows typically TTL 128, Linux TTL 64, macOS TTL 64) and TCP/IP fingerprinting using p0f patterns for more accurate OS identification. Generates `ServerInfo` struct with fields: `server_type` (Apache, Nginx, IIS, etc), `version` (specific version), `os` (operating system), `powered_by` (X-Powered-By header), `framework` (backend framework like Laravel, Django, Rails), `platform` (platform like .NET, PHP, Node.js, Python).
+
+---
+
+#### **2. `cloud_detector.go` (Go)**
+
+**Task:** Detect whether the website is hosted on a cloud provider and determine the specific cloud provider.
+
+**Purpose:** This file uses IP range databases downloaded from published providers to detect cloud provider. Uses `https://ip-ranges.amazonaws.com/ip-ranges.json` for AWS (covers all regions and services), `https://www.gstatic.com/ipranges/cloud.json` for GCP, `https://www.microsoft.com/en-us/download/details.aspx?id=56519` for Azure, and databases for DigitalOcean, Linode, Vultr, Heroku. Implements `detect_specific_services(ip: string) -> []CloudService` with DNS PTR records and HTTP response headers: `x-amz-*` for AWS services (S3, EC2, CloudFront), `x-cloud-trace-context` for GCP, `x-ms-*` for Azure. Identifies specific services such as EC2 (compute), S3 (storage), CloudFront (CDN), GCE (compute), App Engine (PaaS), Azure VMs, Azure Blob Storage. Generates `CloudReport` with provider, services used, region (us-east-1, eu-west-1, ap-southeast-1), and confidence level based on number of matching indicators.
+
+---
+
+#### **3. `cdn_detector.rs` (Rust)**
+
+**Task:** Detect whether the website uses a Content Delivery Network (CDN) and identify the specific CDN provider.
+
+**Purpose:** This file analyzes response headers to detect CDN provider. Detection based on response headers: `CF-*` headers for Cloudflare (CF-Ray, CF-Cache-Status), `Fastly-*` headers for Fastly (Fastly-Debug-Digest, X-Served-By), `X-Cache` and `X-Akamai-*` headers for Akamai, `X-Amz-Cf-*` headers for CloudFront, `X-Cache-Lookup` for Cloudflare. If headers are absent, perform reverse DNS lookup on IP and look for patterns like `cloudflare.com`, `fastly.net`, `akamai.net`, `cloudfront.net`, `stackpath.com`, `keycdn.com`. Implements `detect_edge_locations()` from `CF-Ray` header (Cloudflare provides data center code like `CDG`, `FRA`, `LHR`) or `X-Edge-Location` (Akamai). Implements `detect_caching_behavior()` from `Cache-Control` and `X-Cache` headers to see if CDN is caching properly (HIT, MISS, BYPASS). Generates `CdnReport` with provider, edge locations (data center serving the request), and proxy status (whether CDN acts as reverse proxy).
+
+---
+
+#### **4. `load_balancer_detector.rs` (Rust)**
+
+**Task:** Detect the presence of a load balancer in front of the web server and determine its type.
+
+**Purpose:** This file analyzes `Set-Cookie` headers to detect load balancer. Cookie patterns: `AWSALB` and `AWSELB` for AWS Application/Network Load Balancer, `BIGipServer` for F5 Big-IP, multiple `JSESSIONID` for same domain (indication of sticky session), multiple `PHPSESSID`. Analyzes `Server` header for `HAProxy` (load balancer software), `nginx` (if multiple backends with upstream), `F5` (hardware load balancer). Implements `analyze_ttl_differences()`: measure TTL (Time-To-Live) from multiple requests to the domain, if they differ then possible load balancing (because each request may be directed to different backend). Implements `detect_algorithm()` based on response cookie or header pattern: `round-robin` (sequential IPs), `least-connections` (random IPs), `ip-hash` (consistent IP for each client). Implements `estimate_backend_count()` by checking variations in response headers (different Server headers, different Date headers, different Session cookies). Generates `LBReport` with type (hardware/software/cloud), algorithm, and backend count estimation.
+
+---
+
+#### **5. `hosting_provider_lookup.rs` (Rust)**
+
+**Task:** Look up and identify the hosting provider used by the website.
+
+**Purpose:** This file uses `maxminddb` library with GeoLite2-ASN.mmdb database to obtain ASN (Autonomous System Number) and organization. Uses ISP database to get provider name (Telkom, Indosat, AWS, Google Cloud, etc). Uses Geo database to get country, city, latitude, longitude, timezone. Implements `resolve_hostname()` reverse DNS to get domain name (PTR record). Implements `check_rdns_pattern()` to detect provider from PTR record pattern: `ec2-*.compute.amazonaws.com` for AWS EC2, `*.cloud.google.com` for GCP, `*.cloudapp.azure.com` for Azure, `*.digitalocean.com` for DigitalOcean, `*.linode.com` for Linode. Implements `detect_data_center()` by checking whether IP belongs to known ranges for major data centers (Equinix, Digital Realty, NTT). Generates `HostingReport` with provider (hosting name), ISP, ASN (number and name), geolocation (country, city, coordinates), hostname (PTR record), and data center location (if detected).
+
+---
+
+Indonesian:
+
+---
+
+l## 📂 **`modules/infrastructure/` - Infrastruktur & Hosting**
+
+#### **1. `server_fingerprint.rs` (Rust)**
+
+**Tugas:** Mendeteksi jenis web server yang digunakan oleh website dan versinya.
+
+**Tujuan:** File ini menganalisis response headers dan perilaku server untuk mengidentifikasi jenis dan versi web server. Untuk `Server` header, parse nilai untuk mendeteksi server type (Apache, Nginx, Microsoft IIS, Lighttpd, Caddy, Tomcat, Jetty) dan version. Jika header tidak ada atau dihapus (common security practice), gunakan behavioral analysis: request non-existent path (`/nonexistent-xyz`), analisis format `404` error page (Apache memiliki format berbeda dengan Nginx, IIS memiliki error page khas Windows). Gunakan `Wappalyzer` patterns untuk mendeteksi server dan framework berdasarkan pola response. Implementasi `detect_os()` dari TTL value (Time-To-Live): Windows biasanya TTL 128, Linux TTL 64, macOS TTL 64) dan TCP/IP fingerprinting menggunakan p0f patterns untuk identifikasi OS yang lebih akurat. Menghasilkan `ServerInfo` struct dengan fields: `server_type` (Apache, Nginx, IIS, etc), `version` (versi spesifik), `os` (operating system), `powered_by` (X-Powered-By header), `framework` (framework backend seperti Laravel, Django, Rails), `platform` (platform seperti .NET, PHP, Node.js, Python).
+
+---
+
+#### **2. `cloud_detector.go` (Go)**
+
+**Tugas:** Mendeteksi apakah website di-hosting di cloud provider dan menentukan penyedia cloud spesifik.
+
+**Tujuan:** File ini menggunakan IP range databases yang di-download dari provider yang dipublikasikan untuk mendeteksi cloud provider. Gunakan `https://ip-ranges.amazonaws.com/ip-ranges.json` untuk AWS (mencakup semua region dan service), `https://www.gstatic.com/ipranges/cloud.json` untuk GCP, `https://www.microsoft.com/en-us/download/details.aspx?id=56519` untuk Azure, dan database untuk DigitalOcean, Linode, Vultr, Heroku. Implementasi `detect_specific_services(ip: string) -> []CloudService` dengan DNS PTR records dan HTTP response headers: `x-amz-*` untuk AWS services (S3, EC2, CloudFront), `x-cloud-trace-context` untuk GCP, `x-ms-*` untuk Azure. Identifikasi layanan spesifik seperti EC2 (compute), S3 (storage), CloudFront (CDN), GCE (compute), App Engine (PaaS), Azure VMs, Azure Blob Storage. Generate `CloudReport` dengan provider, services used, region (us-east-1, eu-west-1, ap-southeast-1), dan confidence level berdasarkan jumlah indikator yang cocok.
+
+---
+
+#### **3. `cdn_detector.rs` (Rust)**
+
+**Tugas:** Mendeteksi apakah website menggunakan Content Delivery Network (CDN) dan mengidentifikasi provider CDN spesifik.
+
+**Tujuan:** File ini menganalisis response headers untuk mendeteksi CDN provider. Deteksi berdasarkan response headers: `CF-*` headers untuk Cloudflare (CF-Ray, CF-Cache-Status), `Fastly-*` headers untuk Fastly (Fastly-Debug-Digest, X-Served-By), `X-Cache` dan `X-Akamai-*` headers untuk Akamai, `X-Amz-Cf-*` headers untuk CloudFront, `X-Cache-Lookup` untuk Cloudflare. Jika header tidak ada, lakukan reverse DNS lookup pada IP dan cari pola `cloudflare.com`, `fastly.net`, `akamai.net`, `cloudfront.net`, `stackpath.com`, `keycdn.com`. Implementasi `detect_edge_locations()` dari `CF-Ray` header (Cloudflare memberikan data center code seperti `CDG`, `FRA`, `LHR`) atau `X-Edge-Location` (Akamai). Implementasi `detect_caching_behavior()` dari `Cache-Control` dan `X-Cache` headers untuk melihat apakah CDN melakukan caching dengan benar (HIT, MISS, BYPASS). Generate `CdnReport` dengan provider, edge locations (data center yang melayani request), dan proxy status (apakah CDN bertindak sebagai reverse proxy).
+
+---
+
+#### **4. `load_balancer_detector.rs` (Rust)**
+
+**Tugas:** Mendeteksi adanya load balancer di depan web server dan menentukan tipenya.
+
+**Tujuan:** File ini menganalisis `Set-Cookie` headers untuk mendeteksi load balancer. Pola cookie: `AWSALB` dan `AWSELB` untuk AWS Application/Network Load Balancer, `BIGipServer` untuk F5 Big-IP, `JSESSIONID` yang multiple untuk same domain (indikasi sticky session), `PHPSESSID` yang multiple. Analisis `Server` header untuk `HAProxy` (load balancer software), `nginx` (jika multiple backends dengan upstream), `F5` (hardware load balancer). Implementasi `analyze_ttl_differences()`: ukur TTL (Time-To-Live) dari multiple requests ke domain, jika berbeda-beda maka possible load balancing (karena setiap request mungkin diarahkan ke backend yang berbeda). Implementasi `detect_algorithm()` berdasarkan response cookie atau header pattern: `round-robin` (IP yang berurutan), `least-connections` (IP acak), `ip-hash` (IP consistent untuk setiap client). Implementasi `estimate_backend_count()` dengan memeriksa variasi dalam response header (Server header yang berbeda, Date header yang berbeda, Session cookie yang berbeda). Generate `LBReport` dengan type (hardware/software/cloud), algorithm, dan backend count estimation.
+
+---
+
+#### **5. `hosting_provider_lookup.rs` (Rust)**
+
+**Tugas:** Mencari dan mengidentifikasi hosting provider yang digunakan oleh website.
+
+**Tujuan:** File ini menggunakan `maxminddb` library dengan GeoLite2-ASN.mmdb database untuk mendapatkan ASN (Autonomous System Number) dan organization. Gunakan ISP database untuk mendapatkan provider name (Telkom, Indosat, AWS, Google Cloud, etc). Gunakan Geo database untuk mendapatkan country, city, latitude, longitude, timezone. Implementasi `resolve_hostname()` reverse DNS untuk mendapatkan domain name (PTR record). Implementasi `check_rdns_pattern()` untuk mendeteksi provider dari PTR record pattern: `ec2-*.compute.amazonaws.com` untuk AWS EC2, `*.cloud.google.com` untuk GCP, `*.cloudapp.azure.com` untuk Azure, `*.digitalocean.com` untuk DigitalOcean, `*.linode.com` untuk Linode. Implementasi `detect_data_center()` dengan memeriksa apakah IP termasuk dalam range yang diketahui untuk data center besar (Equinix, Digital Realty, NTT). Generate `HostingReport` dengan provider (nama hosting), ISP, ASN (nomor dan nama), geolocation (negara, kota, koordinat), hostname (PTR record), dan data center location (jika terdeteksi).
+
+---
+

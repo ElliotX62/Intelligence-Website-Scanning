@@ -695,3 +695,78 @@ l## 📂 **`modules/infrastructure/` - Infrastruktur & Hosting**
 
 ---
 
+Explanation of the modules folder intelligence section:
+
+---
+
+## 📂 **`modules/intelligence/` - Threat Intelligence**
+
+#### **1. `threat_intel_integration.rs` (Rust)**
+
+**Task:** Integrate data from multiple threat intelligence feeds to obtain a comprehensive picture of threats associated with the target.
+
+**Purpose:** This file connects the system with multiple threat intelligence platforms simultaneously. Queries are performed to AlienVault OTX (to obtain pulses and indicators from the community), IBM X-Force Exchange (for enterprise threat intelligence), MISP (Malware Information Sharing Platform - for sharing threat data between organizations), ThreatConnect (for threat intelligence aggregation), and Recorded Future (for predictive threat intelligence). Implements `query_all_sources()` which runs queries in parallel using `futures::stream::iter().for_each_concurrent()` with 30s timeout per source to prevent bottlenecks. Implements `merge_strategy()` to merge results from multiple sources: unique indicator lists (deduplication), merge confidence scores with weighted average (each source has weight based on reputation), and aggregate discovered threat families. Implements `score_threat()` to calculate risk score from number of indicators (IP, domain, hash, URL), detected malware families, and severity level from each source. Generates `CombinedThreatData` with fields: `indicators` (list of all threat indicators), `families` (malware families), `severity` (overall severity), `timestamp`, and `sources` (details from each source).
+
+---
+
+#### **2. `reputation_scanner.go` (Go)**
+
+**Task:** Check domain and IP reputation across various security databases to assess trust level.
+
+**Purpose:** This file queries multiple reputation databases in parallel. Queries to `VirusTotal` (https://www.virustotal.com/api/v3/domains/domain) to obtain detection from 70+ antivirus engines, `AlienVault OTX` (https://otx.alienvault.com/api/v1/indicators/domain/domain/general) for community threat intelligence, `URLScan` (https://urlscan.io/api/v1/search/?q=domain:domain) for website behavior, `Google Safe Browsing` (https://safebrowsing.googleapis.com/v4/threatMatches:find) for phishing and malware detection, and `Web of Trust (WOT)` for community trust ratings. For each source, parses response and extracts reputation score, categories (malicious, phishing, benign, suspicious, unsafe), and total vendors that performed detection. Generates `ReputationReport` with fields: `overall_score` (0-100, calculated from weighted average of all sources), `categories` (list of threat categories), `total_vendors` (total vendors that provided assessment), `detections` (number of vendors that detected as malicious), and `detailed_sources` (details from each source including URL, verdict, and detection rate).
+
+---
+
+#### **3. `domain_blacklist_checker.rs` (Rust)**
+
+**Task:** Check whether the target domain is blacklisted across various sources for spam, malware, and abuse.
+
+**Purpose:** This file performs DNS-based blacklist checking by querying multiple blacklist servers. Queries to `Spamhaus` (zen.spamhaus.org) - the largest blacklist for spam and malware, `SURBL` (multi.surbl.org) - URI reputation for malicious links, `URIBL` (multi.uribl.com) - domain reputation, `DNSBL` (list.dnswl.org, dnsbl-1.uceprotect.net) - DNS-based blacklists for spam, and `SORBS` (dnsbl.sorbs.net) - various abuse categories (spam, open relay, open proxy, etc). Implements `check_dnsbl()`: performs DNS query `domain + "." + server` -> `A` record. If response IP is 127.0.0.0/24 (returned IP in the 127.0.0.0/8 range), the domain is listed in the blacklist. Parses IP response to get category (127.0.0.2 for spam, 127.0.0.3 for malware, 127.0.0.4 for phishing, 127.0.0.5 for exploit, 127.0.0.10 for open relay, etc). Implements `check_multiple_servers()` which queries all DNSBL servers in parallel with 5s timeout per server for efficiency. Generates `BlacklistReport` with list of blacklist servers where domain is listed, category from each listing, and confidence level based on number of blacklists that agree.
+
+---
+
+#### **4. `email_harvester.py` (Python)**
+
+**Task:** Collect all email addresses from the website using various methods and group them by category.
+
+**Purpose:** This file uses various methods to collect emails from the website. `extract_from_html()` uses regex pattern `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}` with `re.finditer` to obtain all matches from HTML content. `extract_mailto_links()` extracts from `a` tags with `href="mailto:email"` to obtain emails registered as links. `extract_from_js()` uses `js_analyzer` to search for string literals matching email pattern in JavaScript files. `extract_from_comments()` searches for emails in HTML comment blocks `<!-- ... -->` which often contain contact information. Implements `extract_from_files()` to extract emails from indexed files (PDF, DOC, TXT) using libraries such as `PyPDF2` for PDF and `python-docx` for DOCX. Validates each email with `email_validator` library to check syntax and checks disposable domains using `disposable-email-domains` list. Categorizes emails: `role` (admin, contact, support, info, sales, help, service), `personal` (firstname.lastname format or firstname format), `generic` (webmaster, postmaster, abuse, security). Implements `detect_patterns()` to find email patterns (e.g., john.doe@example.com, jdoe@example.com, j.doe@example.com). Generates `EmailReport` with list of emails, each with category, domain, source (HTML, JS, Mailto, File, Comment), and validation status (Valid, Invalid, Disposable, RoleBased).
+
+---
+
+Indonesian:
+
+---
+
+## 📂 **`modules/intelligence/` - Threat Intelligence**
+
+#### **1. `threat_intel_integration.rs` (Rust)**
+
+**Tugas:** Mengintegrasikan data dari berbagai threat intelligence feeds untuk mendapatkan gambaran lengkap tentang ancaman yang terkait dengan target.
+
+**Tujuan:** File ini menghubungkan sistem dengan multiple threat intelligence platforms secara simultan. Query dilakukan ke AlienVault OTX (untuk mendapatkan pulses dan indicators dari komunitas), IBM X-Force Exchange (untuk threat intelligence enterprise), MISP (Malware Information Sharing Platform - untuk sharing threat data antar organisasi), ThreatConnect (untuk threat intelligence aggregation), dan Recorded Future (untuk predictive threat intelligence). Implementasi `query_all_sources()` yang menjalankan query secara paralel menggunakan `futures::stream::iter().for_each_concurrent()` dengan timeout 30s per source untuk mencegah bottleneck. Implementasi `merge_strategy()` untuk menggabungkan hasil dari multiple sources: unique indicator lists (deduplication), merge confidence scores dengan weighted average (setiap source memiliki weight berdasarkan reputasi), dan aggregate threat families yang ditemukan. Implementasi `score_threat()` untuk menghitung risk score dari jumlah indicators (IP, domain, hash, URL), malware families yang terdeteksi, dan severity level dari setiap source. Generate `CombinedThreatData` dengan fields: `indicators` (list semua indikator ancaman), `families` (malware families), `severity` (overall severity), `timestamp`, dan `sources` (detail dari setiap source).
+
+---
+
+#### **2. `reputation_scanner.go` (Go)**
+
+**Tugas:** Mengecek reputasi domain dan IP di berbagai database keamanan untuk menilai tingkat kepercayaan.
+
+**Tujuan:** File ini melakukan query ke multiple reputation databases secara paralel. Query ke `VirusTotal` (https://www.virustotal.com/api/v3/domains/domain) untuk mendapatkan deteksi dari 70+ antivirus engines, `AlienVault OTX` (https://otx.alienvault.com/api/v1/indicators/domain/domain/general) untuk threat intelligence komunitas, `URLScan` (https://urlscan.io/api/v1/search/?q=domain:domain) untuk perilaku website, `Google Safe Browsing` (https://safebrowsing.googleapis.com/v4/threatMatches:find) untuk deteksi phishing dan malware, dan `Web of Trust (WOT)` untuk rating kepercayaan dari komunitas. Untuk setiap source, parse response dan ekstrak reputation score, categories (malicious, phishing, benign, suspicious, unsafe), dan total vendors yang melakukan deteksi. Generate `ReputationReport` dengan fields: `overall_score` (0-100, dihitung dari weighted average semua source), `categories` (list kategori ancaman), `total_vendors` (total vendor yang memberikan penilaian), `detections` (jumlah vendor yang mendeteksi sebagai malicious), dan `detailed_sources` (detail dari setiap source termasuk URL, verdict, dan detection rate).
+
+---
+
+#### **3. `domain_blacklist_checker.rs` (Rust)**
+
+**Tugas:** Mengecek apakah domain target masuk dalam blacklist di berbagai sumber untuk spam, malware, dan abuse.
+
+**Tujuan:** File ini melakukan DNS-based blacklist checking dengan query ke multiple blacklist servers. Query ke `Spamhaus` (zen.spamhaus.org) - blacklist terbesar untuk spam dan malware, `SURBL` (multi.surbl.org) - URI reputation untuk link berbahaya, `URIBL` (multi.uribl.com) - domain reputation, `DNSBL` (list.dnswl.org, dnsbl-1.uceprotect.net) - DNS-based blacklist untuk spam, dan `SORBS` (dnsbl.sorbs.net) - berbagai kategori abuse (spam, open relay, open proxy, etc). Implementasi `check_dnsbl()`: lakukan DNS query `domain + "." + server` -> `A` record. Jika response IP 127.0.0.0/24 (returned IP in the 127.0.0.0/8 range), berarti domain terdaftar di blacklist. Parse IP response untuk mendapatkan category (127.0.0.2 untuk spam, 127.0.0.3 untuk malware, 127.0.0.4 untuk phishing, 127.0.0.5 untuk exploit, 127.0.0.10 untuk open relay, etc). Implementasi `check_multiple_servers()` yang melakukan query ke semua DNSBL servers secara paralel dengan timeout 5s per server untuk efisiensi. Generate `BlacklistReport` dengan list blacklist servers where domain is listed, category dari setiap listing, dan confidence level berdasarkan jumlah blacklist yang setuju.
+
+---
+
+#### **4. `email_harvester.py` (Python)**
+
+**Tugas:** Mengumpulkan semua alamat email dari website dengan berbagai metode dan mengelompokkannya berdasarkan kategori.
+
+**Tujuan:** File ini menggunakan berbagai metode untuk mengumpulkan email dari website. `extract_from_html()` menggunakan regex pattern `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}` dengan `re.finditer` untuk mendapatkan semua matches dari konten HTML. `extract_mailto_links()` mengekstrak dari `a` tags dengan `href="mailto:email"` untuk mendapatkan email yang terdaftar sebagai link. `extract_from_js()` menggunakan `js_analyzer` untuk mencari string literals yang match email pattern dalam JavaScript files. `extract_from_comments()` mencari email dalam HTML comment blocks `<!-- ... -->` yang sering mengandung informasi kontak. Implementasi `extract_from_files()` untuk mengekstrak email dari file yang terindex (PDF, DOC, TXT) menggunakan library seperti `PyPDF2` untuk PDF dan `python-docx` untuk DOCX. Validasi setiap email dengan `email_validator` library untuk memeriksa syntax dan mengecek disposable domain menggunakan `disposable-email-domains` list. Kategorisasi emails: `role` (admin, contact, support, info, sales, help, service), `personal` (firstname.lastname format atau firstname format), `generic` (webmaster, postmaster, abuse, security). Implementasi `detect_patterns()` untuk menemukan pola email (contoh: john.doe@example.com, jdoe@example.com, j.doe@example.com). Generate `EmailReport` dengan list emails, each with category, domain, source (HTML, JS, Mailto, File, Comment), dan validation status (Valid, Invalid, Disposable, RoleBased).
+
+---

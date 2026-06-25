@@ -770,3 +770,115 @@ Indonesian:
 **Tujuan:** File ini menggunakan berbagai metode untuk mengumpulkan email dari website. `extract_from_html()` menggunakan regex pattern `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}` dengan `re.finditer` untuk mendapatkan semua matches dari konten HTML. `extract_mailto_links()` mengekstrak dari `a` tags dengan `href="mailto:email"` untuk mendapatkan email yang terdaftar sebagai link. `extract_from_js()` menggunakan `js_analyzer` untuk mencari string literals yang match email pattern dalam JavaScript files. `extract_from_comments()` mencari email dalam HTML comment blocks `<!-- ... -->` yang sering mengandung informasi kontak. Implementasi `extract_from_files()` untuk mengekstrak email dari file yang terindex (PDF, DOC, TXT) menggunakan library seperti `PyPDF2` untuk PDF dan `python-docx` untuk DOCX. Validasi setiap email dengan `email_validator` library untuk memeriksa syntax dan mengecek disposable domain menggunakan `disposable-email-domains` list. Kategorisasi emails: `role` (admin, contact, support, info, sales, help, service), `personal` (firstname.lastname format atau firstname format), `generic` (webmaster, postmaster, abuse, security). Implementasi `detect_patterns()` untuk menemukan pola email (contoh: john.doe@example.com, jdoe@example.com, j.doe@example.com). Generate `EmailReport` dengan list emails, each with category, domain, source (HTML, JS, Mailto, File, Comment), dan validation status (Valid, Invalid, Disposable, RoleBased).
 
 ---
+
+Agent folder explanation:
+
+---
+
+## 📂 **`agents/` - INTELLIGENT AGENTS**
+
+---
+
+#### **1. `base_agent.rs` (Rust)**
+
+**Task:** Provide a base class/template that serves as the foundation for all agents in the system.
+
+**Purpose:** This file implements the `Agent` trait with methods that must be implemented by all derived agents: `fn init(&mut self) -> Result<()>` to initialize the agent, `fn run(&mut self) -> Result<()>` to execute the agent's main task, `fn pause(&mut self) -> Result<()>` to pause operations, `fn resume(&mut self) -> Result<()>` to resume paused operations, `fn shutdown(&mut self) -> Result<()>` to stop the agent with graceful cleanup, `fn get_state(&self) -> AgentState` to get the current state, and `fn set_state(&mut self, state: AgentState)` to change state. Implements `AgentManager` struct with fields: `agents: HashMap<String, Box<dyn Agent>>` to store all agents, `message_bus: Arc<MessageBus>` for inter-agent communication, `state_store: Arc<dyn StateStore>` for state persistence using `sled` database with TTL. Implements `broadcast_message(message: AgentMessage)` for inter-agent communication via message bus. Implements `heartbeat()` system: each agent sends heartbeat every 30 seconds, manager monitors and restarts if heartbeat is missing. Error handling with `anyhow` for recoverable errors and `panic` for unrecoverable, with automatic recovery via `supervisor` pattern that will restart crashed agents.
+
+---
+
+#### **2. `reconnaissance_agent.go` (Go)**
+
+**Task:** Perform initial reconnaissance against the target website to collect basic data before in-depth scanning.
+
+**Purpose:** This agent runs 4 reconnaissance stages in parallel using goroutines with `sync.WaitGroup`. Stage 1 - `gatherWhois()`: performs WHOIS lookup to obtain domain ownership information. Stage 2 - `gatherDNS()`: performs DNS enumeration to collect all DNS records (A, AAAA, CNAME, MX, TXT, NS, SOA). Stage 3 - `gatherSubdomains()`: performs subdomain discovery with dictionary attack to find unknown subdomains. Stage 4 - `gatherTechnologies()`: detects technologies used by the website (framework, library, server, CMS) using Wappalyzer patterns. Implements `updateProgress()` which sends progress events to monitoring agent via message bus each time a stage completes. Results are stored in `ReconResult` struct with fields: `Domain string`, `Whois WhoisInfo`, `DNS DnsInfo`, `Subdomains []string`, `Technologies []string`, `CreatedAt time.Time`. This agent also implements caching to avoid re-reconnaissance on the same domain within 24 hours.
+
+---
+
+#### **3. `analysis_agent.rs` (Rust)**
+
+**Task:** Run complex analysis pipelines on collected data to find vulnerabilities and patterns.
+
+**Purpose:** This agent runs an analysis pipeline with 5 sequential stages: `DataPreprocessing` (data cleaning and normalization), `PatternDetection` (detect security patterns using regex and Aho-Corasick), `VulnerabilityMatching` (match against CVE database), `RiskScoring` (calculate risk score with CVSS + business context), `ReportGeneration` (generate initial report). Each stage receives input from the previous stage and produces output for the next stage. Implements `cross_reference_analysis()` to correlate findings from multiple sources (DNS, WHOIS, ports, headers, content) - for example: if port 3306 is open and server header shows MySQL, cross-reference will identify known MySQL vulnerabilities. Uses `Trie` and `Aho-Corasick` for fast pattern matching on large text. Implements `confidence_scoring()` for each finding: high (100-75%) if multiple evidence found, medium (74-50%) if single evidence with verification, low (49-25%) if single evidence without verification, info (24-0%) for additional information. Stores results in `AnalysisResult` struct with fields: `findings: Vec<Finding>`, `summary: String`, `risk_score: f32`, `confidence: f32`.
+
+---
+
+#### **4. `reporting_agent.py` (Python)**
+
+**Task:** Generate reports in various formats based on analyzed data.
+
+**Purpose:** This agent uses strategy pattern to select reporter based on requested format (JSONReporter, TXTReporter, DOCSReporter, CSVReporter, HTMLReporter, PDFReporter). Each reporter implements `generate(data: AnalysisResult) -> bytes` to produce output in specific format. Uses `jinja2` templates for HTML and DOCX reports with user-customizable templates. Implements `executive_summary()` with AI model (LLama3/Mistral) to generate natural language summary: input findings list, prompt engineering for structured output format, and post-processing to ensure professional and informative output. Implements `schedule_report()` with `apscheduler` for regular reporting: runs report generation periodically (daily, weekly, monthly) and sends to stakeholders via email. Implements `customize_report()` to allow users to select templates, colors, branding, and content to be included in the report.
+
+---
+
+#### **5. `monitoring_agent.go` (Go)**
+
+**Task:** Perform scheduled monitoring to detect changes on the target website.
+
+**Purpose:** This agent starts a `cron` scheduler and runs jobs according to specified schedule (e.g., every 6 hours, daily, weekly). Each job: `checkChanges()` - performs a brief scan on the target website and compares results with baseline/previous results. Detects changes such as: new vulnerabilities found, ports changing status (open/close), new subdomains, header security configuration changes, SSL certificate updates, new technologies detected. Implements `generateAlert()` for detected changes with severity based on impact: critical (new high severity vulnerability), high (ports changes, SSL expiry), medium (new subdomain, header changes), low (new technology detected). Sends alerts to handlers: email (`smtp` with TLS), webhook (`http` with retry mechanism max 3 attempts), and Telegram (`telegram` bot API). Implements `storeHistory()` with time-series database (InfluxDB) for trend analysis - enables visualization of security posture changes over time. Implements `baseline_management()` to store initial baseline and periodically update baseline.
+
+---
+
+#### **6. `model_integration.rs` (Rust)**
+
+**Task:** Connect core system with all AI models and manage inference.
+
+**Purpose:** This agent manages the lifecycle of all AI/ML models used by the system. Implements `load_models()` which loads from local path or downloads from registry (Hugging Face) if new version is available. Model types: `MLScanner` (scikit-learn pickle for classification), `AnomalyDetector` (Rust implementation for anomaly detection), `NLPProcessor` (transformers for NLP tasks). Implements `run_inference(data: &[u8], model_name: &str) -> InferenceResult` with inference caching using `LruCache<String, InferenceResult>` to reduce redundant computation (cache based on hash of input data). Implements `model_versioning()`: each model has version tag, auto-update if new version available in registry, and rollback capability if new version causes performance degradation. Implements `distributed_inference()`: if data is large, split across threads using `rayon` for parallel processing. Implements `model_health_check()` to monitor model performance (accuracy, latency, memory usage) and alert if performance drops below threshold.
+
+---
+
+Indonesian:
+
+---
+
+## 📂 **`agents/` - AGEN CERDAS**
+
+---
+
+#### **1. `base_agent.rs` (Rust)**
+
+**Tugas:** Menyediakan class dasar/template yang menjadi fondasi untuk semua agent dalam sistem.
+
+**Tujuan:** File ini mengimplementasikan trait `Agent` dengan method-method yang harus diimplementasikan oleh semua agent turunan: `fn init(&mut self) -> Result<()>` untuk menginisialisasi agent, `fn run(&mut self) -> Result<()>` untuk menjalankan tugas utama agent, `fn pause(&mut self) -> Result<()>` untuk menjeda operasi, `fn resume(&mut self) -> Result<()>` untuk melanjutkan operasi yang dijeda, `fn shutdown(&mut self) -> Result<()>` untuk menghentikan agent dengan graceful cleanup, `fn get_state(&self) -> AgentState` untuk mendapatkan state saat ini, dan `fn set_state(&mut self, state: AgentState)` untuk mengubah state. Implementasi `AgentManager` struct dengan fields: `agents: HashMap<String, Box<dyn Agent>>` untuk menyimpan semua agent, `message_bus: Arc<MessageBus>` untuk komunikasi antar agent, `state_store: Arc<dyn StateStore>` untuk persistence state menggunakan `sled` database dengan TTL. Implementasi `broadcast_message(message: AgentMessage)` untuk komunikasi antar agent melalui message bus. Implementasi `heartbeat()` system: setiap agent mengirim heartbeat setiap 30 detik, manager monitor dan restart jika heartbeat missing. Error handling dengan `anyhow` untuk recoverable errors dan `panic` untuk unrecoverable, dengan automatic recovery via `supervisor` pattern yang akan merestart agent yang crash.
+
+---
+
+#### **2. `reconnaissance_agent.go` (Go)**
+
+**Tugas:** Melakukan pengintaian awal terhadap target website untuk mengumpulkan data dasar sebelum scanning mendalam.
+
+**Tujuan:** Agen ini menjalankan 4 stage pengintaian secara paralel menggunakan goroutine dengan `sync.WaitGroup`. Stage 1 - `gatherWhois()`: melakukan WHOIS lookup untuk mendapatkan informasi kepemilikan domain. Stage 2 - `gatherDNS()`: melakukan DNS enumeration untuk mengumpulkan semua DNS records (A, AAAA, CNAME, MX, TXT, NS, SOA). Stage 3 - `gatherSubdomains()`: melakukan subdomain discovery dengan dictionary attack untuk menemukan subdomain yang tidak diketahui. Stage 4 - `gatherTechnologies()`: mendeteksi teknologi yang digunakan website (framework, library, server, CMS) menggunakan Wappalyzer patterns. Implementasi `updateProgress()` yang mengirim progress events ke monitoring agent melalui message bus setiap kali stage selesai. Hasil disimpan di `ReconResult` struct dengan fields: `Domain string`, `Whois WhoisInfo`, `DNS DnsInfo`, `Subdomains []string`, `Technologies []string`, `CreatedAt time.Time`. Agen ini juga mengimplementasikan caching untuk menghindari pengintaian ulang pada domain yang sama dalam waktu 24 jam.
+
+---
+
+#### **3. `analysis_agent.rs` (Rust)**
+
+**Tugas:** Menjalankan pipeline analisis kompleks pada data yang telah dikumpulkan untuk menemukan kerentanan dan pola.
+
+**Tujuan:** Agen ini menjalankan pipeline analisis dengan 5 stage berurutan: `DataPreprocessing` (membersihkan dan normalisasi data), `PatternDetection` (mendeteksi pola keamanan menggunakan regex dan Aho-Corasick), `VulnerabilityMatching` (mencocokkan dengan database CVE), `RiskScoring` (menghitung risk score dengan CVSS + business context), `ReportGeneration` (membuat laporan awal). Setiap stage menerima input dari previous stage dan menghasilkan output untuk next stage. Implementasi `cross_reference_analysis()` untuk mengkorelasikan temuan dari multiple sources (DNS, WHOIS, ports, headers, content) - contoh: jika port 3306 terbuka dan server header menunjukkan MySQL, maka cross-reference akan mengidentifikasi potensi kerentanan MySQL yang diketahui. Menggunakan `Trie` dan `Aho-Corasick` untuk fast pattern matching pada teks yang besar. Implementasi `confidence_scoring()` untuk setiap finding: high (100-75%) jika ditemukan multiple evidence, medium (74-50%) jika single evidence dengan verifikasi, low (49-25%) jika single evidence tanpa verifikasi, info (24-0%) untuk informasi tambahan. Simpan results di `AnalysisResult` struct dengan fields: `findings: Vec<Finding>`, `summary: String`, `risk_score: f32`, `confidence: f32`.
+
+---
+
+#### **4. `reporting_agent.py` (Python)**
+
+**Tugas:** Mengenerate laporan dalam berbagai format berdasarkan data yang telah dianalisis.
+
+**Tujuan:** Agen ini menggunakan strategy pattern untuk memilih reporter berdasarkan format yang diminta (JSONReporter, TXTReporter, DOCSReporter, CSVReporter, HTMLReporter, PDFReporter). Setiap reporter mengimplementasikan `generate(data: AnalysisResult) -> bytes` untuk menghasilkan output dalam format tertentu. Menggunakan `jinja2` templates untuk HTML dan DOCX reports dengan template yang dapat disesuaikan pengguna. Implementasi `executive_summary()` dengan AI model (LLama3/Mistral) untuk generate natural language summary: input findings list, prompt engineering untuk format output yang terstruktur, dan post-processing untuk memastikan output profesional dan informatif. Implementasi `schedule_report()` dengan `apscheduler` untuk regular reporting: menjalankan report generation secara periodik (daily, weekly, monthly) dan mengirim ke stakeholder melalui email. Implementasi `customize_report()` untuk memungkinkan user memilih template, warna, branding, dan konten yang akan disertakan dalam laporan.
+
+---
+
+#### **5. `monitoring_agent.go` (Go)**
+
+**Tugas:** Melakukan monitoring berjadwal untuk mendeteksi perubahan pada website target.
+
+**Tujuan:** Agen ini memulai `cron` scheduler dan menjalankan job sesuai schedule yang ditentukan (misal: setiap 6 jam, daily, weekly). Setiap job: `checkChanges()` - melakukan scanning singkat pada website target dan membandingkan hasil dengan baseline/previous results. Mendeteksi perubahan seperti: new vulnerabilities ditemukan, ports yang berubah status (open/close), new subdomains, header security configuration changes, SSL certificate updates, new technologies detected. Implementasi `generateAlert()` untuk detected changes dengan severity berdasarkan impact: critical (new vulnerability high severity), high (ports changes, SSL expiry), medium (new subdomain, header changes), low (new technology detected). Kirim alert ke handlers: email (`smtp` with TLS), webhook (`http` with retry mechanism max 3 attempts), dan Telegram (`telegram` bot API). Implementasi `storeHistory()` dengan time-series database (InfluxDB) untuk trend analysis - memungkinkan visualisasi perubahan security posture over time. Implementasi `baseline_management()` untuk menyimpan baseline pertama kali dan update baseline secara periodik.
+
+---
+
+#### **6. `model_integration.rs` (Rust)**
+
+**Tugas:** Menghubungkan core system dengan semua model AI dan mengelola inference.
+
+**Tujuan:** Agen ini mengelola lifecycle dari semua AI/ML models yang digunakan sistem. Implementasi `load_models()` yang melakukan load dari path lokal atau download dari registry (Hugging Face) jika versi baru tersedia. Model types: `MLScanner` (scikit-learn pickle untuk klasifikasi), `AnomalyDetector` (Rust implementation untuk anomaly detection), `NLPProcessor` (transformers untuk NLP tasks). Implementasi `run_inference(data: &[u8], model_name: &str) -> InferenceResult` dengan inference caching menggunakan `LruCache<String, InferenceResult>` untuk mengurangi redundant computation (cache berdasarkan hash dari input data). Implementasi `model_versioning()`: setiap model punya version tag, auto-update jika ada version baru di registry, dan rollback capability jika version baru menyebabkan performance degradation. Implementasi `distributed_inference()`: jika data besar, split across threads menggunakan `rayon` untuk parallel processing. Implementasi `model_health_check()` untuk memonitoring performa model (accuracy, latency, memory usage) dan alert jika performa turun di bawah threshold.
+
+---

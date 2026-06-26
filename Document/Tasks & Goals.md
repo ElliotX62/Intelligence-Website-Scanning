@@ -1676,3 +1676,1470 @@ Implementasi `generate_chart()` untuk visual chart menggunakan Chart.js atau mat
 **Tujuan:** File ini menghasilkan berbagai visualisasi data menggunakan matplotlib dan plotly. Class `GraphVisualizer` dengan fields: `plotter: matplotlib.pyplot`, `style: str` (style untuk chart). Implementasi `create_bar_chart(data: Dict[str, int], title: str) -> bytes`: matplotlib bar chart untuk distribusi severity (critical, high, medium, low, info), return PNG bytes. Implementasi `create_pie_chart(data: Dict[str, int], title: str) -> bytes`: pie chart untuk persentase jenis vulnerability (XSS, SQLi, CSRF, Header Issues, etc). Implementasi `create_line_chart(dates: List[datetime], values: List[float], title: str) -> bytes`: line chart untuk timeline activity (vulnerabilities over time, risk score over time). Implementasi `create_network_graph(nodes: List[Node], edges: List[Edge]) -> bytes`: menggunakan networkx untuk graph visualization dari link graph (menunjukkan hubungan antar halaman, internal/external links). Implementasi `create_heat_map(data: List[List[float]], labels: List[str]) -> bytes`: heat map untuk geolokasi ancaman atau port distribution. Implementasi `create_radar_chart(categories: List[str], values: List[float], title: str) -> bytes`: radar chart untuk perbandingan multiple metrics (security score di berbagai kategori). Implementasi `create_donut_chart()` untuk donut chart (pie chart dengan hole di tengah). Implementasi `apply_style()` untuk menerapkan style konsisten ke semua charts (colors, fonts, sizes). Implementasi `export_charts()` untuk mengekspor semua charts sebagai gambar (PNG, SVG) untuk disisipkan ke laporan.
 
 ---
+
+**terminal folder explanation:**
+
+---
+
+## 📂 **`terminal/` - TERMINAL INTERFACE**
+
+---
+
+#### **1. `cli_interface.rs` (Rust)**
+
+**Task:** Provide the main Command Line Interface (CLI) for user interaction via terminal.
+
+**Purpose:** This file is the main gateway for user interaction through the command line. Struct `CliInterface` with fields: `parser: Parser` (clap parser for command line arguments), `config: CliConfig` (CLI configuration). Implements `run()`: parses command line arguments using `clap` with structured subcommands. Subcommands and their functions: `scan` (with args: `--url`, `--profile`, `--output`, `--max-pages`) to start new scanning, `analyze` (with args: `--scan-id`) to run analysis on completed scan, `report` (with args: `--scan-id`, `--format`, `--output`) to generate report, `export` (with args: `--scan-id`, `--format`, `--output`) to export data, `monitor` (with args: `--url`, `--schedule`, `--alert`) to start scheduled monitoring, `status` (with args: `--scan-id` or `--all`) to check scan status, `config` (with args: `--get`, `--set`, `--list`) to manage configuration, `history` (with args: `--limit`, `--filter`) to view scan history. Implements `show_help()` to display comprehensive usage information with examples. Implements `validate_args()` to validate arguments before execution (e.g., URL must be valid, scan_id must be UUID, format must be supported). Implements `handle_completion()` to support shell completion (bash, zsh, fish). Implements `format_output()` to format output with colors (success = green, warning = yellow, error = red) using `colored` crate.
+
+---
+
+#### **2. `termux_support.rs` (Rust)**
+
+**Task:** Provide specific optimizations for Termux environment (Android terminal emulator).
+
+**Purpose:** This file optimizes user experience in Termux (Android). Struct `TermuxSupport` with fields: `terminal_size: (usize, usize)` (terminal width and height in characters), `color_support: bool` (whether terminal supports color). Implements `detect_terminal()`: uses `term_size` crate to get terminal size (width and height). If undetectable, falls back to default (80x24). Implements `supports_color()`: checks `TERM` environment variable for values that support color (xterm, xterm-256color, screen, tmux), and `tput colors` command to get number of supported colors. Implements `format_progress(progress: f32, width: usize) -> String`: generates progress bar compatible with Termux with format `[#######---] 70%`. Adjusts width to terminal size (using width-10 for progress bar). Implements `get_input()`: uses `crossterm` or `termion` for non-blocking input compatible with Android touch keyboard. Implements `format_table()`: formats table with column widths adjusting to terminal width (truncates if too long). Implements `scrollable_output()`: for long output, supports scrolling with arrow keys. Implements `detect_termux()`: checks whether `TERMUX_VERSION` environment variable exists to detect Termux environment.
+
+---
+
+#### **3. `desktop_support.go` (Go)**
+
+**Task:** Provide support for desktop environments (Windows, Linux, macOS).
+
+**Purpose:** This file handles integration with desktop environments. Struct `DesktopSupport` with fields: `gui_enabled: bool` (whether GUI is available), `notifications_enabled: bool` (whether desktop notifications are available). Implements `ShowNotification(title string, message string)`: displays desktop notifications using platform-specific methods: Windows uses `toast` (via `github.com/go-toast/toast`), Linux uses `notify-send` (DBus), macOS uses `NSUserNotification` (via Objective-C bridge). Implements `SystemTray()`: creates system tray icon with menu options: Start Scan (starts scanning), View Reports (opens reports in browser), Monitor Status (displays status), Configuration (opens settings), Exit (exits application). Uses `fyne` or `gioui` for GUI components. Implements `OpenInBrowser(url string)`: opens URL in default system browser (Windows: `cmd /c start`, Linux: `xdg-open`, macOS: `open`). Implements `GetSystemInfo()`: gets system information (OS, version, architecture, CPU cores, memory) for logging and debugging. Implements `FilePicker()`: opens file picker dialog to select files (export location, config file). Implements `DesktopShortcut()`: creates shortcut on desktop for easy access.
+
+---
+
+#### **4. `progress_display.rs` (Rust)**
+
+**Task:** Display progress bars and status during scanning in an interactive and informative manner.
+
+**Purpose:** This file displays informative visual progress during operations. Struct `ProgressDisplay` with fields: `progress: f32` (progress 0-100), `status: String` (status message), `tasks: Vec<TaskProgress>` (list of tasks and their progress), `start_time: Instant` (start time). Implements `render()`: draws progress bar with width terminal_width - 20 (uses 20 characters for label). Format: `[#######---] 70% - Scanning DNS records...`. Shows current status, ETA (estimated time arrival) based on progress and elapsed time. Shows tasks completed/total (e.g., "Tasks: 3/10 completed"). Shows detailed status for each task (if available): `- DNS Enumeration: Complete (5 records)`, `- Port Scanning: In Progress (50/100 ports)`, `- XSS Detection: Pending`. Implements `update(progress: f32, status: &str, tasks: &[TaskProgress])`: updates fields and re-renders in place (using `\r` to overwrite). Implements `multi_progress()` for parallel tasks: shows multiple progress bars simultaneously using `tui-rs`/`ratatui` with split screen. Implements `color_coding()`: based on status (success = green, warning = yellow, error = red, info = blue). Implements `animation()`: progress bar with smooth animation (spinning indicator when idle). Implements `render_timeline()`: displays timeline events (e.g., "10:00:05 - DNS Enumeration Started", "10:00:30 - DNS Enumeration Completed").
+
+---
+
+#### **5. `interactive_shell.rs` (Rust)**
+
+**Task:** Provide interactive shell mode where users can run commands interactively.
+
+**Purpose:** This file provides a powerful interactive shell experience. Struct `InteractiveShell` with fields: `history: Vec<String>` (command history), `history_index: usize` (position in history), `completions: Vec<String>` (completion list), `current_dir: PathBuf` (current directory). Implements `run()`: loop with `readline` library (rustyline) displaying prompt `iws> `. Each command: parse, execute, show output. Built-in commands: `scan` (start scanning), `analyze` (run analysis), `report` (generate report), `export` (export data), `monitor` (start monitoring), `status` (check status), `config` (manage config), `history` (show command history), `clear` (clear screen), `exit` (exit shell), `help` (show help). Implements `command_history()`: arrow up/down to navigate history (like in bash). Implements `tab_completion()`: suggests commands (scan, analyze, report, etc), suggests options (--url, --profile, --format), suggests arguments (scan_id, url, file_path). Implements `command_piping()`: supports piping between commands (e.g., `scan example.com | analyze | report -f pdf`). Implements `persistent_session()`: saves state (history, current_dir, variables) to file for restoration in next session. Implements `alias()`: users can create aliases (e.g., `s` for scan, `a` for analyze, `r` for report). Implements `variables()`: users can define variables (e.g., `set PROFILE aggressive`, then use `scan example.com --profile $PROFILE`). Implements `help()` command that displays all available commands with syntax and examples.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`terminal/` - TERMINAL INTERFACE**
+
+---
+
+#### **1. `cli_interface.rs` (Rust)**
+
+**Tugas:** Menyediakan antarmuka Command Line Interface (CLI) utama untuk interaksi pengguna melalui terminal.
+
+**Tujuan:** File ini adalah pintu gerbang utama untuk interaksi pengguna melalui command line. Struct `CliInterface` dengan fields: `parser: Parser` (clap parser untuk command line arguments), `config: CliConfig` (konfigurasi CLI). Implementasi `run()`: parse command line arguments menggunakan `clap` dengan subcommands yang terstruktur. Subcommands dan fungsinya: `scan` (with args: `--url`, `--profile`, `--output`, `--max-pages`) untuk memulai scanning baru, `analyze` (with args: `--scan-id`) untuk menjalankan analisis pada scan yang sudah selesai, `report` (with args: `--scan-id`, `--format`, `--output`) untuk generate laporan, `export` (with args: `--scan-id`, `--format`, `--output`) untuk mengekspor data, `monitor` (with args: `--url`, `--schedule`, `--alert`) untuk memulai monitoring berjadwal, `status` (with args: `--scan-id` atau `--all`) untuk mengecek status scanning, `config` (with args: `--get`, `--set`, `--list`) untuk mengelola konfigurasi, `history` (with args: `--limit`, `--filter`) untuk melihat riwayat scanning. Implementasi `show_help()` untuk menampilkan usage information yang lengkap dengan contoh. Implementasi `validate_args()` untuk memvalidasi argumen sebelum eksekusi (contoh: url harus valid, scan_id harus UUID, format harus didukung). Implementasi `handle_completion()` untuk mendukung shell completion (bash, zsh, fish). Implementasi `format_output()` untuk memformat output dengan warna (success = green, warning = yellow, error = red) menggunakan `colored` crate.
+
+---
+
+#### **2. `termux_support.rs` (Rust)**
+
+**Tugas:** Menyediakan optimasi khusus untuk environment Termux (Android terminal emulator).
+
+**Tujuan:** File ini mengoptimalkan pengalaman pengguna di Termux (Android). Struct `TermuxSupport` dengan fields: `terminal_size: (usize, usize)` (lebar dan tinggi terminal dalam karakter), `color_support: bool` (apakah terminal mendukung warna). Implementasi `detect_terminal()`: use `term_size` crate untuk mendapatkan ukuran terminal (lebar dan tinggi). Jika tidak bisa dideteksi, fallback ke default (80x24). Implementasi `supports_color()`: check `TERM` environment variable untuk nilai yang support warna (xterm, xterm-256color, screen, tmux), dan `tput colors` command untuk mendapatkan jumlah warna yang didukung. Implementasi `format_progress(progress: f32, width: usize) -> String`: generate progress bar yang kompatibel dengan Termux dengan format `[#######---] 70%`. Menyesuaikan width dengan terminal size (menggunakan width-10 untuk progress bar). Implementasi `get_input()`: use `crossterm` atau `termion` untuk non-blocking input yang kompatibel dengan touch keyboard di Android. Implementasi `format_table()`: format tabel dengan lebar kolom yang menyesuaikan dengan terminal width (truncate jika terlalu panjang). Implementasi `scrollable_output()`: untuk output yang panjang, mendukung scrolling dengan arrow keys. Implementasi `detect_termux()`: check apakah `TERMUX_VERSION` environment variable exists untuk mendeteksi Termux environment.
+
+---
+
+#### **3. `desktop_support.go` (Go)**
+
+**Tugas:** Menyediakan support untuk desktop environment (Windows, Linux, macOS).
+
+**Tujuan:** File ini menangani integrasi dengan desktop environment. Struct `DesktopSupport` dengan fields: `gui_enabled: bool` (apakah GUI tersedia), `notifications_enabled: bool` (apakah notifikasi desktop tersedia). Implementasi `ShowNotification(title string, message string)`: menampilkan notifikasi desktop menggunakan platform-specific methods: Windows menggunakan `toast` (via `github.com/go-toast/toast`), Linux menggunakan `notify-send` (DBus), macOS menggunakan `NSUserNotification` (via Objective-C bridge). Implementasi `SystemTray()`: create system tray icon dengan menu options: Start Scan (memulai scanning), View Reports (membuka laporan di browser), Monitor Status (menampilkan status), Configuration (buka pengaturan), Exit (keluar aplikasi). Menggunakan `fyne` atau `gioui` untuk GUI components. Implementasi `OpenInBrowser(url string)`: membuka URL di browser default sistem (Windows: `cmd /c start`, Linux: `xdg-open`, macOS: `open`). Implementasi `GetSystemInfo()`: mendapatkan informasi sistem (OS, version, architecture, CPU cores, memory) untuk logging dan debugging. Implementasi `FilePicker()`: membuka file picker dialog untuk memilih file (export location, config file). Implementasi `DesktopShortcut()`: membuat shortcut di desktop untuk memudahkan akses.
+
+---
+
+#### **4. `progress_display.rs` (Rust)**
+
+**Tugas:** Menampilkan progress bar dan status selama scanning secara interaktif dan informatif.
+
+**Tujuan:** File ini menampilkan visual progress yang informatif selama operasi berlangsung. Struct `ProgressDisplay` dengan fields: `progress: f32` (progress 0-100), `status: String` (status message), `tasks: Vec<TaskProgress>` (daftar task dan progress masing-masing), `start_time: Instant` (waktu mulai). Implementasi `render()`: draw progress bar dengan lebar terminal_width - 20 (gunakan 20 karakter untuk label). Format: `[#######---] 70% - Scanning DNS records...`. Tampilkan current status, ETA (estimated time arrival) berdasarkan progress dan elapsed time. Tampilkan tasks completed/total (contoh: "Tasks: 3/10 completed"). Tampilkan detailed status untuk setiap task (jika ada): `- DNS Enumeration: Complete (5 records)`, `- Port Scanning: In Progress (50/100 ports)`, `- XSS Detection: Pending`. Implementasi `update(progress: f32, status: &str, tasks: &[TaskProgress])`: update fields dan re-render di tempat (menggunakan `\r` untuk overwrite). Implementasi `multi_progress()` untuk parallel tasks: show multiple progress bars simultaneously menggunakan `tui-rs`/`ratatui` dengan split screen. Implementasi `color_coding()`: berdasarkan status (success = green, warning = yellow, error = red, info = blue). Implementasi `animation()`: progress bar dengan animasi yang smooth (spinning indicator saat idle). Implementasi `render_timeline()`: tampilkan timeline events (contoh: "10:00:05 - DNS Enumeration Started", "10:00:30 - DNS Enumeration Completed").
+
+---
+
+#### **5. `interactive_shell.rs` (Rust)**
+
+**Tugas:** Menyediakan interactive shell mode di mana user dapat menjalankan command secara interaktif.
+
+**Tujuan:** File ini memberikan pengalaman shell interaktif yang powerful. Struct `InteractiveShell` dengan fields: `history: Vec<String>` (riwayat perintah), `history_index: usize` (posisi dalam history), `completions: Vec<String>` (daftar completions), `current_dir: PathBuf` (direktori saat ini). Implementasi `run()`: loop dengan `readline` library (rustyline) yang menampilkan prompt `iws> `. Setiap command: parse, execute, show output. Built-in commands: `scan` (start scanning), `analyze` (run analysis), `report` (generate report), `export` (export data), `monitor` (start monitoring), `status` (check status), `config` (manage config), `history` (show command history), `clear` (clear screen), `exit` (exit shell), `help` (show help). Implementasi `command_history()`: arrow up/down untuk navigate history (seperti di bash). Implementasi `tab_completion()`: suggest commands (scan, analyze, report, etc), suggest options (--url, --profile, --format), suggest arguments (scan_id, url, file_path). Implementasi `command_piping()`: support pipe antara commands (contoh: `scan example.com | analyze | report -f pdf`). Implementasi `persistent_session()`: menyimpan state (history, current_dir, variables) ke file untuk di-restore di session berikutnya. Implementasi `alias()`: user dapat membuat alias (contoh: `s` untuk scan, `a` untuk analyze, `r` untuk report). Implementasi `variables()`: user dapat mendefinisikan variabel (contoh: `set PROFILE aggressive`, kemudian gunakan `scan example.com --profile $PROFILE`). Implementasi `help()` command yang menampilkan semua available commands dengan syntax dan contoh.
+
+---
+
+**integration folder explanation:**
+
+---
+
+## 📂 **`integration/` - SERVICE INTEGRATION**
+
+---
+
+#### **1. `shodan_wrapper.rs` (Rust)**
+
+**Task:** Connect the system with Shodan API to obtain network intelligence.
+
+**Purpose:** This file is a wrapper for the Shodan API that allows the system to access network intelligence data from the Shodan search engine. Struct `ShodanWrapper` with fields: `client: Client` (HTTP client with connection pooling), `api_key: String` (API key for authentication), `base_url: String` (Shodan API base URL). Implements `search_ip(ip: &str) -> Result<ShodanHost>`: performs GET request to `/shodan/host/{ip}` to get detailed information about the target IP. Parses response: `hostnames` (list of associated hostnames), `ports` (list of open ports), `os` (detected operating system), `data` (complete banners from running services). Implements `search_domain(domain: &str) -> Result<Vec<ShodanHost>>`: performs GET request to `/shodan/host/search?query=hostname:{domain}` to search for all hosts associated with the domain. Implements `search(query: &str) -> Result<Vec<ShodanResult>>`: performs GET request to `/shodan/host/search?query={query}` to perform free search. Rate limit: 1 request per second for free tier, implements token bucket to respect rate limit. Implements `get_service_banner(ip: &str, port: u16)` to get specific service banner from a given port. Implements `get_geo_location(ip: &str)` to get IP geolocation information.
+
+---
+
+#### **2. `censys_connector.rs` (Rust)**
+
+**Task:** Connect the system with Censys API to obtain internet-wide scanning data.
+
+**Purpose:** This file is a connector for the Censys API that provides internet-wide scanning data. Struct `CensysConnector` with fields: `client: Client`, `api_id: String` (API ID for authentication), `api_secret: String` (API secret), `base_url: String`. Implements `get_ip(ip: &str) -> Result<CensysIp>`: performs GET request to `/v2/hosts/{ip}` to get complete information about the IP. Parses response: `location` (country, city, coordinates), `services` (list of running services with banners), `autonomous_system` (ASN and organization). Implements `get_certificate(cert_hash: &str) -> Result<CensysCert>`: performs GET request to `/v2/certificates/{cert_hash}` to get information about SSL/TLS certificate. Parses response: `fingerprint_sha256`, `subject_dn`, `issuer_dn`, `validity` (start, end), `subject_alt_names`. Implements `search(query: &str) -> Result<Vec<CensysHost>>`: performs POST request to `/v2/hosts/search` with body `{"q": query}` to search for hosts based on query. Implements `get_certificate_history(domain: &str)` to get certificate history for a domain. Implements `get_domain_report(domain: &str)` to get complete domain report.
+
+---
+
+#### **3. `virustotal_adapter.rs` (Rust)**
+
+**Task:** Connect the system with VirusTotal API for malware scanning and URL analysis.
+
+**Purpose:** This file is an adapter for the VirusTotal API that provides malware scanning capabilities. Struct `VirusTotalAdapter` with fields: `client: Client`, `api_key: String`, `base_url: String`. Implements `scan_url(url: &str) -> Result<VtUrlScan>`: performs POST request to `/urls` with URL to submit URL scanning, then GET request to `/analyses/{id}` to get scan results. Parses response: `malicious` (number of malicious detections), `suspicious`, `harmless`, `undetected`. Implements `get_domain_report(domain: &str) -> Result<VtDomain>`: performs GET request to `/domains/{domain}` to get complete information about the domain. Parses response: `last_analysis_stats` (malicious, suspicious, harmless, undetected), `whois` (WHOIS information), `last_http_response` (last response), `categories` (domain categorization). Implements `get_ip_report(ip: &str) -> Result<VtIp>`: performs GET request to `/ip_addresses/{ip}` to get information about the IP. Implements `scan_file(file_data: &[u8]) -> Result<VtFileScan>`: uploads file (max 32MB) for malware scanning. Implements `get_file_report(hash: &str)` to get report from file hash.
+
+---
+
+#### **4. `alienvault_otx.rs` (Rust)**
+
+**Task:** Connect the system with AlienVault OTX (Open Threat Exchange) for threat intelligence.
+
+**Purpose:** This file is an integration with AlienVault OTX that provides open threat intelligence exchange. Struct `AlienvaultOtx` with fields: `client: Client`, `api_key: String`, `base_url: String`. Implements `get_domain_pulses(domain: &str) -> Result<Vec<Pulse>>`: performs GET request to `/api/v1/indicators/domain/{domain}/pulses` to get pulses (threat intelligence reports) associated with the domain. Parses response: `pulse_id`, `name`, `description`, `created`, `modified`, `tags`, `references`. Implements `get_ip_pulses(ip: &str) -> Result<Vec<Pulse>>`: performs GET request to `/api/v1/indicators/IPv4/{ip}/pulses` to get pulses associated with the IP. Implements `get_domain_general(domain: &str) -> Result<OtxIndicator>`: performs GET request to `/api/v1/indicators/domain/{domain}/general` to get general information about the domain. Parses response: `whois` (structured WHOIS information), `geo` (geolocation), `url_list` (list of associated URLs), `passive_dns` (passive DNS records). Implements `get_indicator_by_type(indicator_type: &str, value: &str)` to get indicator by type (domain, IP, URL, hash). Implements `get_pulse_details(pulse_id: &str)` to get complete details of a specific pulse.
+
+---
+
+#### **5. `urlscan_integration.rs` (Rust)**
+
+**Task:** Connect the system with URLScan API for website behavior analysis.
+
+**Purpose:** This file is an integration with URLScan API that analyzes website behavior. Struct `UrlscanIntegration` with fields: `client: Client`, `api_key: Option<String>` (optional for higher rate limit), `base_url: String`. Implements `submit_scan(url: &str) -> Result<UrlscanSubmission>`: performs POST request to `/scan` with body `{"url": url, "public": "off"}` to submit URL scanning privately (results only viewable with API key). Parses response: `uuid` (submission ID), `api` (URL for results), `visibility` (public/private). Implements `get_result(uuid: &str) -> Result<UrlscanResult>`: performs GET request to `/result/{uuid}` to get scan results. Parses response: `screenshot_url` (screenshot URL), `dom` (DOM snapshot), `verdicts` (malicious, phishing, suspicious), `links` (external/internal links), `pages` (pages found). Implements `search(query: &str) -> Result<Vec<UrlscanSubmission>>`: performs GET request to `/search/?q={query}` to search previous submissions. Implements `get_domain_report(domain: &str)` to get complete domain report. Implements `get_ip_report(ip: &str)` to get report about the IP.
+
+---
+
+#### **6. `securitytrails_client.rs` (Rust)**
+
+**Task:** Connect the system with SecurityTrails API for DNS history and domain intelligence.
+
+**Purpose:** This file is a client for the SecurityTrails API that provides DNS history and domain intelligence. Struct `SecurityTrailsClient` with fields: `client: Client`, `api_key: String`, `base_url: String`. Implements `get_domain_details(domain: &str) -> Result<StDomain>`: performs GET request to `/v1/domain/{domain}` to get detailed information about the domain. Parses response: `registrant`, `creation_date`, `expiry_date`, `nameservers`, `whois_email`. Implements `get_subdomains(domain: &str) -> Result<Vec<String>>`: performs GET request to `/v1/domain/{domain}/subdomains` to get all known subdomains. Implements `get_dns_history(domain: &str) -> Result<StDnsHistory>`: performs GET request to `/v1/domain/{domain}/history/{record_type}` (for A, AAAA, MX, NS, TXT records). Parses response: `records` (list of records with timestamps), `total` (total records). Implements `get_ssl_history(domain: &str)` to get SSL certificate history. Implements `get_whois_history(domain: &str)` to get WHOIS ownership change history. Implements `get_related_domains(domain: &str)` to find related domains (same owner, similar name, same IP).
+
+---
+
+#### **7. `crtsh_wrapper.rs` (Rust)**
+
+**Task:** Connect the system with crt.sh (Certificate Transparency Log search) for certificate discovery.
+
+**Purpose:** This file is a wrapper for the crt.sh API that provides certificate transparency log searching. Struct `CrtshWrapper` with fields: `client: Client`, `base_url: String`. Implements `search(domain: &str) -> Result<Vec<CrtshCert>>`: performs GET request to `/?q={domain}&output=json` to search all certificates issued for the domain. Parses response: `name_value` (domain/subdomain), `issuer_name` (CA issuer name), `not_before` (validity start date), `not_after` (expiry date), `serial_number`. Implements `search_by_hash(hash: &str) -> Result<Vec<CrtshCert>>`: performs GET request to `/?q={hash}` to search certificates by hash. Implements `search_by_wildcard(domain: &str) -> Result<Vec<CrtshCert>>`: performs GET request to `/?q=*.{domain}` to search wildcard certificates for the domain. Implements `get_certificate_details(cert_hash: &str)` to get complete certificate details from hash. Implements `get_domain_certificates(domain: &str)` to get all certificates associated with the domain (including subdomains and wildcards). Implements `find_subdomains_by_cert(domain: &str)` to find subdomains from certificate transparency logs (DNS names in certificates).
+
+---
+
+#### **8. `dnsdb_client.rs` (Rust)**
+
+**Task:** Connect the system with DNSDB (DNS Database) for historical DNS data.
+
+**Purpose:** This file is a client for the DNSDB API that provides historical DNS data. Struct `DnsdbClient` with fields: `client: Client`, `api_key: String`, `base_url: String`. Implements `get_rrsets(domain: &str) -> Result<Vec<DnsdbRrset>>`: performs GET request to `/dnsdb/v2/rrsets?name={domain}` to get DNS records for the domain. Implements `get_rrset_history(domain: &str, rr_type: &str) -> Result<Vec<DnsdbRrset>>`: performs GET request to `/dnsdb/v2/rrsets?name={domain}&rrtype={rr_type}&history=1` to get historical records of a specific type. Parses response: `rrname` (record name), `rrtype` (record type), `rdata` (record data), `count` (observation count), `time_first` (first seen), `time_last` (last seen). Implements `get_zone(zone: &str) -> Result<Vec<DnsdbRrset>>`: performs GET request to `/dnsdb/v2/zones/{zone}` to get all records in a zone. Implements `get_passive_dns(domain: &str)` to get passive DNS data (DNS observations from various sources). Implements `find_related_domains(ip: &str)` to find domains associated with an IP based on DNS records.
+
+---
+
+#### **9. `greyhat_warfare.rs` (Rust)**
+
+**Task:** Connect the system with GreyHat Warfare for fast threat intelligence access.
+
+**Purpose:** This file is an integration with GreyHat Warfare that provides fast threat intelligence access. Struct `GreyhatWarfare` with fields: `client: Client`, `api_key: String`, `base_url: String`. Implements `search(query: &str) -> Result<Vec<GhResult>>`: performs GET request to `/search?q={query}` to perform fast search. Parses response: `domain`, `ip`, `registrant`, `creation_date`, `expiry_date`, `nameservers`, `tags`. Implements `get_domain(domain: &str) -> Result<GhDomain>`: performs GET request to `/domain/{domain}` to get detailed information about the domain. Parses response: `registrant` (registrant name), `creation_date` (registration date), `expiry_date` (expiry date), `nameservers` (nameservers), `ip` (IP address), `asn` (ASN). Implements `get_ip(ip: &str) -> Result<GhIp>`: performs GET request to `/ip/{ip}` to get information about the IP. Parses response: `domains` (list of domains on IP), `asn` (ASN), `organization` (organization), `location` (geolocation). Implements `get_bulk_domains(domains: Vec<String>)` to get bulk information for multiple domains. Implements `get_recent_domains()` to get recently discovered domains.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`integration/` - INTEGRASI LAYANAN**
+
+---
+
+#### **1. `shodan_wrapper.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan Shodan API untuk mendapatkan network intelligence.
+
+**Tujuan:** File ini adalah wrapper untuk Shodan API yang memungkinkan sistem mengakses data network intelligence dari Shodan search engine. Struct `ShodanWrapper` dengan fields: `client: Client` (HTTP client dengan connection pooling), `api_key: String` (API key untuk autentikasi), `base_url: String` (base URL Shodan API). Implementasi `search_ip(ip: &str) -> Result<ShodanHost>`: melakukan GET request ke `/shodan/host/{ip}` untuk mendapatkan informasi detail tentang IP target. Parse response: `hostnames` (daftar hostname yang terkait), `ports` (daftar port yang terbuka), `os` (operating system yang terdeteksi), `data` (banner lengkap dari service yang berjalan). Implementasi `search_domain(domain: &str) -> Result<Vec<ShodanHost>>`: melakukan GET request ke `/shodan/host/search?query=hostname:{domain}` untuk mencari semua host yang terkait dengan domain. Implementasi `search(query: &str) -> Result<Vec<ShodanResult>>`: melakukan GET request ke `/shodan/host/search?query={query}` untuk melakukan pencarian bebas. Rate limit: 1 request per second untuk free tier, implementasi token bucket untuk menghormati rate limit. Implementasi `get_service_banner(ip: &str, port: u16)` untuk mendapatkan banner spesifik dari service di port tertentu. Implementasi `get_geo_location(ip: &str)` untuk mendapatkan informasi geolokasi IP.
+
+---
+
+#### **2. `censys_connector.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan Censys API untuk mendapatkan internet-wide scanning data.
+
+**Tujuan:** File ini adalah konektor untuk Censys API yang menyediakan data scanning internet-wide. Struct `CensysConnector` dengan fields: `client: Client`, `api_id: String` (API ID untuk autentikasi), `api_secret: String` (API secret), `base_url: String`. Implementasi `get_ip(ip: &str) -> Result<CensysIp>`: melakukan GET request ke `/v2/hosts/{ip}` untuk mendapatkan informasi lengkap tentang IP. Parse response: `location` (negara, kota, koordinat), `services` (daftar service yang berjalan dengan banner), `autonomous_system` (ASN dan organisasi). Implementasi `get_certificate(cert_hash: &str) -> Result<CensysCert>`: melakukan GET request ke `/v2/certificates/{cert_hash}` untuk mendapatkan informasi tentang sertifikat SSL/TLS. Parse response: `fingerprint_sha256`, `subject_dn`, `issuer_dn`, `validity` (start, end), `subject_alt_names`. Implementasi `search(query: &str) -> Result<Vec<CensysHost>>`: melakukan POST request ke `/v2/hosts/search` dengan body `{"q": query}` untuk mencari host berdasarkan query. Implementasi `get_certificate_history(domain: &str)` untuk mendapatkan history sertifikat dari domain. Implementasi `get_domain_report(domain: &str)` untuk mendapatkan laporan lengkap tentang domain.
+
+---
+
+#### **3. `virustotal_adapter.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan VirusTotal API untuk malware scanning dan URL analysis.
+
+**Tujuan:** File ini adalah adapter untuk VirusTotal API yang menyediakan malware scanning capabilities. Struct `VirusTotalAdapter` dengan fields: `client: Client`, `api_key: String`, `base_url: String`. Implementasi `scan_url(url: &str) -> Result<VtUrlScan>`: melakukan POST request ke `/urls` dengan URL untuk submit URL scanning, kemudian GET request ke `/analyses/{id}` untuk mendapatkan hasil scanning. Parse response: `malicious` (jumlah deteksi malicious), `suspicious`, `harmless`, `undetected`. Implementasi `get_domain_report(domain: &str) -> Result<VtDomain>`: melakukan GET request ke `/domains/{domain}` untuk mendapatkan informasi lengkap tentang domain. Parse response: `last_analysis_stats` (malicious, suspicious, harmless, undetected), `whois` (informasi WHOIS), `last_http_response` (response terakhir), `categories` (kategorisasi domain). Implementasi `get_ip_report(ip: &str) -> Result<VtIp>`: melakukan GET request ke `/ip_addresses/{ip}` untuk mendapatkan informasi tentang IP. Implementasi `scan_file(file_data: &[u8]) -> Result<VtFileScan>`: upload file (max 32MB) untuk scanning malware. Implementasi `get_file_report(hash: &str)` untuk mendapatkan report dari file hash.
+
+---
+
+#### **4. `alienvault_otx.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan AlienVault OTX (Open Threat Exchange) untuk threat intelligence.
+
+**Tujuan:** File ini adalah integration dengan AlienVault OTX yang menyediakan open threat intelligence exchange. Struct `AlienvaultOtx` dengan fields: `client: Client`, `api_key: String`, `base_url: String`. Implementasi `get_domain_pulses(domain: &str) -> Result<Vec<Pulse>>`: melakukan GET request ke `/api/v1/indicators/domain/{domain}/pulses` untuk mendapatkan pulses (threat intelligence reports) yang terkait dengan domain. Parse response: `pulse_id`, `name`, `description`, `created`, `modified`, `tags`, `references`. Implementasi `get_ip_pulses(ip: &str) -> Result<Vec<Pulse>>`: melakukan GET request ke `/api/v1/indicators/IPv4/{ip}/pulses` untuk mendapatkan pulses yang terkait dengan IP. Implementasi `get_domain_general(domain: &str) -> Result<OtxIndicator>`: melakukan GET request ke `/api/v1/indicators/domain/{domain}/general` untuk mendapatkan informasi umum tentang domain. Parse response: `whois` (informasi WHOIS terstruktur), `geo` (geolokasi), `url_list` (daftar URL yang terkait), `passive_dns` (passive DNS records). Implementasi `get_indicator_by_type(indicator_type: &str, value: &str)` untuk mendapatkan indicator berdasarkan tipe (domain, IP, URL, hash). Implementasi `get_pulse_details(pulse_id: &str)` untuk mendapatkan detail lengkap dari pulse tertentu.
+
+---
+
+#### **5. `urlscan_integration.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan URLScan API untuk website behavior analysis.
+
+**Tujuan:** File ini adalah integration dengan URLScan API yang menganalisis perilaku website. Struct `UrlscanIntegration` dengan fields: `client: Client`, `api_key: Option<String>` (optional untuk rate limit yang lebih tinggi), `base_url: String`. Implementasi `submit_scan(url: &str) -> Result<UrlscanSubmission>`: melakukan POST request ke `/scan` dengan body `{"url": url, "public": "off"}` untuk submit URL scanning private (hasil hanya bisa dilihat dengan API key). Parse response: `uuid` (ID submission), `api` (URL untuk hasil), `visibility` (public/private). Implementasi `get_result(uuid: &str) -> Result<UrlscanResult>`: melakukan GET request ke `/result/{uuid}` untuk mendapatkan hasil scanning. Parse response: `screenshot_url` (URL screenshot), `dom` (DOM snapshot), `verdicts` (malicious, phishing, suspicious), `links` (external/internal links), `pages` (halaman yang ditemukan). Implementasi `search(query: &str) -> Result<Vec<UrlscanSubmission>>`: melakukan GET request ke `/search/?q={query}` untuk mencari submission sebelumnya. Implementasi `get_domain_report(domain: &str)` untuk mendapatkan laporan lengkap tentang domain. Implementasi `get_ip_report(ip: &str)` untuk mendapatkan laporan tentang IP.
+
+---
+
+#### **6. `securitytrails_client.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan SecurityTrails API untuk DNS history dan domain intelligence.
+
+**Tujuan:** File ini adalah client untuk SecurityTrails API yang menyediakan DNS history dan domain intelligence. Struct `SecurityTrailsClient` dengan fields: `client: Client`, `api_key: String`, `base_url: String`. Implementasi `get_domain_details(domain: &str) -> Result<StDomain>`: melakukan GET request ke `/v1/domain/{domain}` untuk mendapatkan informasi detail tentang domain. Parse response: `registrant`, `creation_date`, `expiry_date`, `nameservers`, `whois_email`. Implementasi `get_subdomains(domain: &str) -> Result<Vec<String>>`: melakukan GET request ke `/v1/domain/{domain}/subdomains` untuk mendapatkan semua subdomain yang diketahui. Implementasi `get_dns_history(domain: &str) -> Result<StDnsHistory>`: melakukan GET request ke `/v1/domain/{domain}/history/{record_type}` (untuk A, AAAA, MX, NS, TXT records). Parse response: `records` (list records dengan timestamp), `total` (total records). Implementasi `get_ssl_history(domain: &str)` untuk mendapatkan history sertifikat SSL. Implementasi `get_whois_history(domain: &str)` untuk mendapatkan history WHOIS perubahan kepemilikan. Implementasi `get_related_domains(domain: &str)` untuk menemukan domain yang terkait (sama pemilik, similar name, same IP).
+
+---
+
+#### **7. `crtsh_wrapper.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan crt.sh (Certificate Transparency Log search) untuk certificate discovery.
+
+**Tujuan:** File ini adalah wrapper untuk crt.sh API yang menyediakan pencarian certificate transparency logs. Struct `CrtshWrapper` dengan fields: `client: Client`, `base_url: String`. Implementasi `search(domain: &str) -> Result<Vec<CrtshCert>>`: melakukan GET request ke `/?q={domain}&output=json` untuk mencari semua sertifikat yang diterbitkan untuk domain. Parse response: `name_value` (domain/subdomain), `issuer_name` (nama issuer CA), `not_before` (tanggal mulai valid), `not_after` (tanggal kadaluarsa), `serial_number`. Implementasi `search_by_hash(hash: &str) -> Result<Vec<CrtshCert>>`: melakukan GET request ke `/?q={hash}` untuk mencari sertifikat berdasarkan hash. Implementasi `search_by_wildcard(domain: &str) -> Result<Vec<CrtshCert>>`: melakukan GET request ke `/?q=*.{domain}` untuk mencari wildcard certificate untuk domain. Implementasi `get_certificate_details(cert_hash: &str)` untuk mendapatkan detail lengkap sertifikat dari hash. Implementasi `get_domain_certificates(domain: &str)` untuk mendapatkan semua sertifikat yang terkait dengan domain (termasuk subdomain dan wildcard). Implementasi `find_subdomains_by_cert(domain: &str)` untuk menemukan subdomain dari certificate transparency logs (DNS names dalam certificate).
+
+---
+
+#### **8. `dnsdb_client.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan DNSDB (DNS Database) untuk historical DNS data.
+
+**Tujuan:** File ini adalah client untuk DNSDB API yang menyediakan historical DNS data. Struct `DnsdbClient` dengan fields: `client: Client`, `api_key: String`, `base_url: String`. Implementasi `get_rrsets(domain: &str) -> Result<Vec<DnsdbRrset>>`: melakukan GET request ke `/dnsdb/v2/rrsets?name={domain}` untuk mendapatkan DNS records dari domain. Implementasi `get_rrset_history(domain: &str, rr_type: &str) -> Result<Vec<DnsdbRrset>>`: melakukan GET request ke `/dnsdb/v2/rrsets?name={domain}&rrtype={rr_type}&history=1` untuk mendapatkan historical records dari tipe tertentu. Parse response: `rrname` (nama record), `rrtype` (tipe record), `rdata` (data record), `count` (jumlah observasi), `time_first` (first seen), `time_last` (last seen). Implementasi `get_zone(zone: &str) -> Result<Vec<DnsdbRrset>>`: melakukan GET request ke `/dnsdb/v2/zones/{zone}` untuk mendapatkan semua records dalam zone. Implementasi `get_passive_dns(domain: &str)` untuk mendapatkan passive DNS data (observasi DNS dari berbagai sumber). Implementasi `find_related_domains(ip: &str)` untuk menemukan domain yang terkait dengan IP berdasarkan DNS records.
+
+---
+
+#### **9. `greyhat_warfare.rs` (Rust)**
+
+**Tugas:** Menghubungkan sistem dengan GreyHat Warfare untuk fast threat intelligence access.
+
+**Tujuan:** File ini adalah integration dengan GreyHat Warfare yang menyediakan fast threat intelligence access. Struct `GreyhatWarfare` dengan fields: `client: Client`, `api_key: String`, `base_url: String`. Implementasi `search(query: &str) -> Result<Vec<GhResult>>`: melakukan GET request ke `/search?q={query}` untuk melakukan pencarian cepat. Parse response: `domain`, `ip`, `registrant`, `creation_date`, `expiry_date`, `nameservers`, `tags`. Implementasi `get_domain(domain: &str) -> Result<GhDomain>`: melakukan GET request ke `/domain/{domain}` untuk mendapatkan informasi detail tentang domain. Parse response: `registrant` (nama registrant), `creation_date` (tanggal registrasi), `expiry_date` (tanggal kadaluarsa), `nameservers` (nameserver), `ip` (IP address), `asn` (ASN). Implementasi `get_ip(ip: &str) -> Result<GhIp>`: melakukan GET request ke `/ip/{ip}` untuk mendapatkan informasi tentang IP. Parse response: `domains` (daftar domain di IP), `asn` (ASN), `organization` (organisasi), `location` (geolokasi). Implementasi `get_bulk_domains(domains: Vec<String>)` untuk mendapatkan informasi bulk dari multiple domains. Implementasi `get_recent_domains()` untuk mendapatkan domain terbaru yang ditemukan.
+
+---
+
+**deployment folder explanation:**
+
+---
+
+## 📂 **`deployment/` - DEPLOYMENT**
+
+---
+
+#### **1. `dockerfile`**
+
+**Task:** Build Docker image for containerizing the IWS application with multi-stage build.
+
+**Purpose:** This file defines the Docker image build process with a multi-stage approach to optimize size and security. Stage 1 - Builder: FROM `rust:1.75-slim` to compile Rust components with release optimizations, FROM `golang:1.21-alpine` to compile Go components, FROM `python:3.11-slim` to install Python dependencies. Copies `Cargo.toml`, `go.mod`, `requirements.txt` into the container. Runs `cargo build --release` to build Rust components, `go build -o iws` to build Go components, `pip install -r requirements.txt` for Python dependency installation. Stage 2 - Runtime: FROM `python:3.11-slim` as the final smaller base image. Copies all binaries from builder stage (`/app/target/release/`, `/app/iws`, `/app/.venv/`). Copies all Python files (`iws.py`, `main.py`, `core/`, `modules/`, `agents/`, `models/`, `storage/`, `utils/`, `config/`, `database/`, `api/`, `reports/`, `terminal/`, `integration/`). Exposes port 8080 for HTTP API. Healthcheck: `CMD ["curl", "-f", "http://localhost:8080/health"]` for monitoring container health. CMD `["python", "iws.py", "--mode", "production"]` to run the application. Implements non-root user (`useradd -m -u 1000 iws`) for container security.
+
+---
+
+#### **2. `docker-compose.yml`**
+
+**Task:** Orchestrate multiple containers to run the entire IWS stack.
+
+**Purpose:** This file defines all services needed to run IWS in a containerized environment. Services: `iws` (build: .) - main application with port mapping 8080:8080, depends_on `postgres` and `redis`. `postgres` (image: postgres:15) - PostgreSQL database with environment: `POSTGRES_USER=iws`, `POSTGRES_PASSWORD=${DB_PASSWORD}`, `POSTGRES_DB=iws`, volume `postgres_data:/var/lib/postgresql/data`, healthcheck with `pg_isready -U iws`. `redis` (image: redis:7-alpine) - Redis cache with command `redis-server --appendonly yes`, volume `redis_data:/data`, healthcheck with `redis-cli ping`. `nginx` (image: nginx:alpine) - reverse proxy with volume `./nginx_config.conf:/etc/nginx/conf.d/default.conf`, depends_on `iws`, ports 80:80 and 443:443. Networks: `iws-network` (bridge network for inter-container communication). Volumes: `postgres_data`, `redis_data`, `iws_data` (for persistent data). Environment variables from `.env` file using `env_file: .env`. Restart policy: `unless-stopped` for all services.
+
+---
+
+#### **3. `kubernetes_deployment.yaml`**
+
+**Task:** Define manifests for deploying IWS in a Kubernetes cluster.
+
+**Purpose:** This file contains all Kubernetes manifests for production-ready deployment. `Deployment` for IWS application: `replicas=3` for high availability, container image `iws:latest` (pull policy `Always`), env from `ConfigMap` (for non-sensitive config) and `Secrets` (for sensitive data). Resources: requests `cpu=100m, memory=256Mi`, limits `cpu=500m, memory=1Gi`. `livenessProbe`: `httpGet /health` every 10s, `initialDelaySeconds=30`, `failureThreshold=3`. `readinessProbe`: `httpGet /ready` every 5s, `initialDelaySeconds=10`, `failureThreshold=3`. `Service`: type=ClusterIP (internal), port=8080, selector `app=iws`. `Ingress`: hostname `iws.example.com`, tls secret `iws-tls` for HTTPS. `HorizontalPodAutoscaler (HPA)`: minReplicas=3, maxReplicas=10, targetCPUUtilizationPercentage=70, targetMemoryUtilizationPercentage=80. `ConfigMap`: for non-sensitive configuration (`LOG_LEVEL=info`, `MAX_THREADS=50`, `SCANNING_PROFILE=moderate`). `Secret`: for sensitive data (database password, API keys). `PersistentVolumeClaim`: for persistent data storage (10Gi). `ServiceAccount`: with minimal permissions for operation.
+
+---
+
+#### **4. `nginx_config.conf`**
+
+**Task:** Configure Nginx as reverse proxy, load balancer, and SSL terminator.
+
+**Purpose:** This file defines Nginx configuration for managing HTTP/HTTPS traffic. `upstream` block: `upstream iws_backend { server iws:8080; }` for load balancing to backend. `server` block port 80: `listen 80`, `return 301 https://$host$request_uri` to redirect HTTP to HTTPS. `server` block port 443: `listen 443 ssl http2`, `ssl_certificate /etc/nginx/ssl/tls.crt`, `ssl_certificate_key /etc/nginx/ssl/tls.key` for SSL termination. `ssl_protocols TLSv1.2 TLSv1.3`, `ssl_ciphers HIGH:!aNULL:!MD5` for secure cipher suites. `location /`: `proxy_pass http://iws_backend`, `proxy_set_header Host $host`, `proxy_set_header X-Real-IP $remote_addr`, `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`, `proxy_set_header X-Forwarded-Proto $scheme`. `location /ws/`: for WebSocket support, `proxy_http_version 1.1`, `proxy_set_header Upgrade $http_upgrade`, `proxy_set_header Connection "upgrade"`. `location /static/`: `alias /usr/share/nginx/html/static/` for static files. Rate limiting: `limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s`, `limit_req zone=api_limit burst=20 nodelay`. `client_max_body_size 50M` to allow large file uploads.
+
+---
+
+#### **5. `systemd_service.rs` (Rust)**
+
+**Task:** Generate systemd service unit to run IWS as a service on Linux.
+
+**Purpose:** This file implements a systemd service unit generator. Template unit: `[Unit]` Description="IWS Intelligence Website Scanning System", After="network.target" (ensure network is available), Wants="network-online.target". `[Service]` Type="simple" (main process), User="iws" (dedicated user), Group="iws", WorkingDirectory="/opt/iws" (working directory), ExecStart="/usr/bin/python3 /opt/iws/iws.py --mode production" (command to run), Restart="always" (restart if crash), RestartSec="10" (10 second delay before restart), TimeoutStopSec="30" (30 second shutdown timeout), EnvironmentFile="/etc/iws/env" (environment variables), LimitNOFILE="65535" (maximum file descriptors). `[Install]` WantedBy="multi-user.target" (start at multi-user runlevel). Implements `generate_service_file()` to write unit file to `/etc/systemd/system/iws.service`. Implements `enable_service()` to run `systemctl enable iws`. Implements `start_service()` to run `systemctl start iws`. Implements `status_service()` to check status with `systemctl status iws`. Implements `logs_service()` to view logs with `journalctl -u iws -f`.
+
+---
+
+#### **6. `install.sh`**
+
+**Task:** Automate the installation process of IWS on various operating systems.
+
+**Purpose:** This file is an installation script that automates the entire installation process. Step 1: Check prerequisites - checks for `curl`, `wget`, `git`, `python3` (>=3.11), `pip3`, `cargo` (>=1.75), `go` (>=1.21). Installs missing ones using package manager (apt, yum, pacman). Step 2: Clone repository from Git (`git clone https://github.com/iws/iws.git /opt/iws`). Step 3: Create virtual environment (`python3 -m venv /opt/iws/.venv`). Step 4: Install Python dependencies (`source /opt/iws/.venv/bin/activate && pip install -r requirements.txt`). Step 5: Build Rust components (`cd /opt/iws && cargo build --release`). Step 6: Build Go components (`cd /opt/iws && go build -o iws`). Step 7: Setup configuration (copy `.env_template` to `.env`, prompt user to fill API keys). Step 8: Initialize database (`python3 scripts/init_database.py`). Step 9: Create systemd service (run `systemd_service.rs` generator). Step 10: Start service (`systemctl start iws` and `systemctl enable iws`). Step 11: Verify installation (`curl http://localhost:8080/health`). Supports uninstall (`--remove` flag): stop and disable service, delete directory, remove user. Supports upgrade (`--upgrade` flag): pull latest code, rebuild, restart service. Supports `--help` option to display all options.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`deployment/` - DEPLOYMENT**
+
+---
+
+#### **1. `dockerfile`**
+
+**Tugas:** Membangun Docker image untuk containerisasi aplikasi IWS dengan multi-stage build.
+
+**Tujuan:** File ini mendefinisikan proses build Docker image dengan pendekatan multi-stage untuk mengoptimalkan ukuran dan keamanan. Stage 1 - Builder: FROM `rust:1.75-slim` untuk mengkompilasi komponen Rust dengan optimasi release, FROM `golang:1.21-alpine` untuk mengkompilasi komponen Go, FROM `python:3.11-slim` untuk menginstal dependensi Python. Copy `Cargo.toml`, `go.mod`, `requirements.txt` ke dalam container. Jalankan `cargo build --release` untuk build Rust components, `go build -o iws` untuk build Go components, `pip install -r requirements.txt` untuk instalasi dependensi Python. Stage 2 - Runtime: FROM `python:3.11-slim` sebagai base image final yang lebih kecil. Copy semua binary dari stage builder (`/app/target/release/`, `/app/iws`, `/app/.venv/`). Copy semua file Python (`iws.py`, `main.py`, `core/`, `modules/`, `agents/`, `models/`, `storage/`, `utils/`, `config/`, `database/`, `api/`, `reports/`, `terminal/`, `integration/`). Expose port 8080 untuk HTTP API. Healthcheck: `CMD ["curl", "-f", "http://localhost:8080/health"]` untuk monitoring container health. CMD `["python", "iws.py", "--mode", "production"]` untuk menjalankan aplikasi. Implementasi non-root user (`useradd -m -u 1000 iws`) untuk keamanan container.
+
+---
+
+#### **2. `docker-compose.yml`**
+
+**Tugas:** Mengorkestrasi multiple containers untuk menjalankan seluruh stack IWS.
+
+**Tujuan:** File ini mendefinisikan semua services yang dibutuhkan untuk menjalankan IWS dalam environment containerized. Services: `iws` (build: .) - aplikasi utama dengan port mapping 8080:8080, depends_on `postgres` dan `redis`. `postgres` (image: postgres:15) - database PostgreSQL dengan environment: `POSTGRES_USER=iws`, `POSTGRES_PASSWORD=${DB_PASSWORD}`, `POSTGRES_DB=iws`, volume `postgres_data:/var/lib/postgresql/data`, healthcheck dengan `pg_isready -U iws`. `redis` (image: redis:7-alpine) - Redis cache dengan command `redis-server --appendonly yes`, volume `redis_data:/data`, healthcheck dengan `redis-cli ping`. `nginx` (image: nginx:alpine) - reverse proxy dengan volume `./nginx_config.conf:/etc/nginx/conf.d/default.conf`, depends_on `iws`, ports 80:80 dan 443:443. Networks: `iws-network` (bridge network untuk komunikasi antar container). Volumes: `postgres_data`, `redis_data`, `iws_data` (untuk persistent data). Environment variables dari file `.env` menggunakan `env_file: .env`. Restart policy: `unless-stopped` untuk semua services.
+
+---
+
+#### **3. `kubernetes_deployment.yaml`**
+
+**Tugas:** Mendefinisikan manifest untuk deployment IWS di Kubernetes cluster.
+
+**Tujuan:** File ini berisi semua manifest Kubernetes untuk deployment production-ready. `Deployment` untuk aplikasi IWS: `replicas=3` untuk high availability, container image `iws:latest` (pull policy `Always`), env from `ConfigMap` (untuk non-sensitive config) dan `Secrets` (untuk sensitive data). Resources: requests `cpu=100m, memory=256Mi`, limits `cpu=500m, memory=1Gi`. `livenessProbe`: `httpGet /health` setiap 10s, `initialDelaySeconds=30`, `failureThreshold=3`. `readinessProbe`: `httpGet /ready` setiap 5s, `initialDelaySeconds=10`, `failureThreshold=3`. `Service`: type=ClusterIP (internal), port=8080, selector `app=iws`. `Ingress`: hostname `iws.example.com`, tls secret `iws-tls` untuk HTTPS. `HorizontalPodAutoscaler (HPA)`: minReplicas=3, maxReplicas=10, targetCPUUtilizationPercentage=70, targetMemoryUtilizationPercentage=80. `ConfigMap`: untuk konfigurasi non-sensitive (`LOG_LEVEL=info`, `MAX_THREADS=50`, `SCANNING_PROFILE=moderate`). `Secret`: untuk sensitive data (database password, API keys). `PersistentVolumeClaim`: untuk persistent data storage (10Gi). `ServiceAccount`: dengan minimal permissions untuk operasi.
+
+---
+
+#### **4. `nginx_config.conf`**
+
+**Tugas:** Mengkonfigurasi Nginx sebagai reverse proxy, load balancer, dan SSL terminator.
+
+**Tujuan:** File ini mendefinisikan konfigurasi Nginx untuk mengelola traffic HTTP/HTTPS. `upstream` block: `upstream iws_backend { server iws:8080; }` untuk load balancing ke backend. `server` block port 80: `listen 80`, `return 301 https://$host$request_uri` untuk redirect HTTP ke HTTPS. `server` block port 443: `listen 443 ssl http2`, `ssl_certificate /etc/nginx/ssl/tls.crt`, `ssl_certificate_key /etc/nginx/ssl/tls.key` untuk SSL termination. `ssl_protocols TLSv1.2 TLSv1.3`, `ssl_ciphers HIGH:!aNULL:!MD5` untuk cipher suite yang aman. `location /`: `proxy_pass http://iws_backend`, `proxy_set_header Host $host`, `proxy_set_header X-Real-IP $remote_addr`, `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`, `proxy_set_header X-Forwarded-Proto $scheme`. `location /ws/`: untuk WebSocket support, `proxy_http_version 1.1`, `proxy_set_header Upgrade $http_upgrade`, `proxy_set_header Connection "upgrade"`. `location /static/`: `alias /usr/share/nginx/html/static/` untuk static files. Rate limiting: `limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s`, `limit_req zone=api_limit burst=20 nodelay`. `client_max_body_size 50M` untuk mengizinkan upload file besar.
+
+---
+
+#### **5. `systemd_service.rs` (Rust)**
+
+**Tugas:** Menghasilkan systemd service unit untuk menjalankan IWS sebagai service di Linux.
+
+**Tujuan:** File ini mengimplementasikan generator systemd service unit. Template unit: `[Unit]` Description="IWS Intelligence Website Scanning System", After="network.target" (pastikan network tersedia), Wants="network-online.target". `[Service]` Type="simple" (proses utama), User="iws" (user khusus), Group="iws", WorkingDirectory="/opt/iws" (directory kerja), ExecStart="/usr/bin/python3 /opt/iws/iws.py --mode production" (command untuk menjalankan), Restart="always" (restart jika crash), RestartSec="10" (delay 10 detik sebelum restart), TimeoutStopSec="30" (timeout shutdown 30 detik), EnvironmentFile="/etc/iws/env" (environment variables), LimitNOFILE="65535" (maksimum file descriptors). `[Install]` WantedBy="multi-user.target" (start pada multi-user runlevel). Implementasi `generate_service_file()` untuk menulis file unit ke `/etc/systemd/system/iws.service`. Implementasi `enable_service()` untuk menjalankan `systemctl enable iws`. Implementasi `start_service()` untuk menjalankan `systemctl start iws`. Implementasi `status_service()` untuk mengecek status dengan `systemctl status iws`. Implementasi `logs_service()` untuk melihat logs dengan `journalctl -u iws -f`.
+
+---
+
+#### **6. `install.sh`**
+
+**Tugas:** Mengotomatiskan proses instalasi IWS di berbagai sistem operasi.
+
+**Tujuan:** File ini adalah installation script yang mengotomatiskan seluruh proses instalasi. Step 1: Check prerequisites - periksa keberadaan `curl`, `wget`, `git`, `python3` (>=3.11), `pip3`, `cargo` (>=1.75), `go` (>=1.21). Instal yang kurang menggunakan package manager (apt, yum, pacman). Step 2: Clone repository dari Git (`git clone https://github.com/iws/iws.git /opt/iws`). Step 3: Create virtual environment (`python3 -m venv /opt/iws/.venv`). Step 4: Install Python dependencies (`source /opt/iws/.venv/bin/activate && pip install -r requirements.txt`). Step 5: Build Rust components (`cd /opt/iws && cargo build --release`). Step 6: Build Go components (`cd /opt/iws && go build -o iws`). Step 7: Setup configuration (copy `.env_template` to `.env`, prompt user untuk mengisi API keys). Step 8: Initialize database (`python3 scripts/init_database.py`). Step 9: Create systemd service (jalankan `systemd_service.rs` generator). Step 10: Start service (`systemctl start iws` dan `systemctl enable iws`). Step 11: Verify installation (`curl http://localhost:8080/health`). Support untuk uninstall (`--remove` flag): stop dan disable service, hapus direktori, remove user. Support upgrade (`--upgrade` flag): pull latest code, rebuild, restart service. Support untuk opsi `--help` untuk menampilkan semua opsi.
+
+---
+
+**tests folder explanation:**
+
+---
+
+## 📂 **`tests/` - TESTING**
+
+---
+
+#### **1. `test_scanner.rs` (Rust)**
+
+**Task:** Test all scanner module functionality to ensure accuracy and reliability.
+
+**Purpose:** This file contains unit tests for the scanner module that verify every aspect of scanning. Implements `#[cfg(test)]` to mark test-only code. Mock HTTP client using `wiremock` to simulate server responses without making real requests. Test `DNS enumeration`: mock DNS resolver with known response records, verify that `dns_enum.rs` returns correct records (A, AAAA, CNAME, MX, TXT, NS, SOA, SRV). Test `port scanning`: mock TCP connections with simulated responses, verify that open ports are correctly detected and service detection works. Test `SSL analysis`: mock certificate responses (self-signed, expired, valid, with weak ciphers), verify that analyzer correctly detects issues. Test `timeout handling`: mock slow responses to ensure timeout mechanism works and does not hang. Test `error handling`: simulate connection failures, DNS resolution failures, invalid URLs, verify that errors are returned correctly and do not crash. Test `concurrent scanning`: run multiple scans concurrently, verify that there are no race conditions and all scans complete correctly. Test `cancel_scan()`: start a scan then cancel it, verify that the scan stops with graceful shutdown.
+
+---
+
+#### **2. `test_analyzer.rs` (Rust)**
+
+**Task:** Test all analyzer module functionality to ensure analysis accuracy.
+
+**Purpose:** This file contains unit tests for the analyzer module with sample data that has known results. Test `CVE matching`: provide sample data with vulnerable software versions (Apache 2.4.49), verify that CVE-2021-41773 is found with correct CVSS score. Test `risk scoring`: provide sample vulnerabilities with known CVSS vectors, verify that risk score is correctly calculated using CVSS v3.1 formula. Test `pattern detection`: provide text containing malicious patterns (XSS payloads, SQL injection patterns), verify that pattern recognizer finds all patterns. Test `correlation analysis`: provide data from multiple modules (port 3306 open + MySQL version 5.7 + CVE database), verify that cross-reference correlates findings and produces appropriate warnings. Test `anomaly detection`: provide dataset with outliers, verify that anomaly detector correctly identifies outliers. Test `performance`: verify that analyzer completes analysis within 5 minutes for a website with 100 pages (meeting performance contract).
+
+---
+
+#### **3. `test_integration.rs` (Rust)**
+
+**Task:** Test integration of all modules working together properly in an end-to-end manner.
+
+**Purpose:** This file contains integration tests that test the entire system from start to finish. Implements `testcontainers` to spin up test environment automatically (PostgreSQL container, Redis container, Nginx container). Database is populated with sample data (100 test domains, 1000 vulnerabilities) to ensure data availability. Test `end-to-end scanning`: run full scan on test website (`httpbin` local or mock server), verify that all modules run successfully and produce complete data. Test `scan -> analyze -> report -> export` pipeline: after scan completes, run analysis, generate reports in all formats (JSON, TXT, DOCS, CSV, HTML, PDF), verify that all reports are created correctly with no errors. Test `API integration`: run REST API server, send requests to all endpoints (POST /scan, GET /status, GET /report, POST /analyze, GET /export), verify correct responses and appropriate status codes. Test `error recovery`: simulate network failures (using mock that fails), verify that system retries with exponential backoff and does not crash. Test `data persistence`: verify that data is correctly stored in database and can be retrieved after restart. Verify output against **golden files** (files containing expected output that has been approved) to ensure result consistency.
+
+---
+
+#### **4. `test_security_modules.rs` (Rust)**
+
+**Task:** Specifically test all security modules to ensure accurate vulnerability detection.
+
+**Purpose:** This file contains specific tests for security modules with sample data containing vulnerabilities and non-vulnerable data. Test `XSS detection`: create sample pages with XSS vulnerabilities (reflected, stored, DOM-based), verify that XSS detector finds all vulnerabilities with appropriate confidence levels. Test with XSS payload list (100+ payloads) to ensure comprehensive detection. Test `SQL injection detection`: create sample forms with SQL injection vulnerabilities (boolean-based, time-based, error-based, union-based), verify that SQL injection detector finds all vulnerabilities with correct types. Test `CSRF detection`: create sample forms with and without CSRF tokens, with various SameSite cookie configurations, verify that CSRF analyzer correctly identifies vulnerable forms. Test `header analysis`: create sample responses with correct and incorrect security headers (HSTS, CSP, X-Frame-Options), verify that header analyzer gives appropriate scores. Test `cookie scanner`: create sample cookies with various configurations (Secure, HttpOnly, SameSite), verify that cookie scanner identifies insecure configurations.
+
+---
+
+#### **5. `test_agents.rs` (Rust)**
+
+**Task:** Test all agent system functionality to ensure coordination and reliability.
+
+**Purpose:** This file contains tests for the agent system that verify all aspects of agent lifecycle and communication. Test `agent lifecycle`: create agent, run `init()` -> `run()` -> `pause()` -> `resume()` -> `shutdown()`, verify that state transitions work correctly according to contract. Test `inter-agent communication`: create multiple agents, send messages between agents via message bus, verify that messages are received correctly and payload is not corrupted. Test `state persistence`: save agent state to storage, restart agent, verify that state is restored correctly. Test `error recovery`: simulate agent crash (panic), verify that supervisor detects missing heartbeat and restarts agent automatically. Test `monitoring agent`: create monitoring agent with simulated changes (new vulnerability, port change), verify that agent detects changes and generates alert with correct severity. Test `reconnaissance agent`: run reconnaissance agent on sample domain, verify that all stages (WHOIS, DNS, subdomains, technologies) complete with valid results. Test `reporting agent`: run reporting agent with sample data, verify that reports are generated in all supported formats. Test `concurrent agents`: run 10 agents simultaneously, verify that there are no race conditions and all agents complete successfully.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`tests/` - TESTING**
+
+---
+
+#### **1. `test_scanner.rs` (Rust)**
+
+**Tugas:** Menguji semua fungsionalitas scanner module untuk memastikan akurasi dan reliability.
+
+**Tujuan:** File ini berisi unit tests untuk scanner module yang memverifikasi setiap aspek scanning. Implementasi `#[cfg(test)]` untuk menandai test-only code. Mock HTTP client menggunakan `wiremock` untuk mensimulasikan response server tanpa melakukan request nyata. Test `DNS enumeration`: mock DNS resolver dengan response records yang telah diketahui, verifikasi bahwa `dns_enum.rs` mengembalikan records yang benar (A, AAAA, CNAME, MX, TXT, NS, SOA, SRV). Test `port scanning`: mock TCP connections dengan simulated responses, verifikasi bahwa port yang terbuka terdeteksi dengan benar dan service detection bekerja. Test `SSL analysis`: mock certificate responses (self-signed, expired, valid, with weak ciphers), verifikasi bahwa analyzer mendeteksi masalah dengan benar. Test `timeout handling`: mock slow responses untuk memastikan timeout mechanism bekerja dan tidak menggantung. Test `error handling`: simulate connection failures, DNS resolution failures, invalid URLs, verifikasi bahwa error dikembalikan dengan benar dan tidak crash. Test `concurrent scanning`: jalankan multiple scans secara concurrent, verifikasi bahwa tidak ada race condition dan semua scan selesai dengan benar. Test `cancel_scan()`: memulai scan lalu membatalkannya, verifikasi bahwa scan berhenti dengan graceful shutdown.
+
+---
+
+#### **2. `test_analyzer.rs` (Rust)**
+
+**Tugas:** Menguji semua fungsionalitas analyzer module untuk memastikan akurasi analisis.
+
+**Tujuan:** File ini berisi unit tests untuk analyzer module dengan sample data yang sudah diketahui hasilnya. Test `CVE matching`: berikan sample data dengan versi software yang vulnerable (Apache 2.4.49), verifikasi bahwa CVE-2021-41773 ditemukan dengan CVSS score yang benar. Test `risk scoring`: berikan sample vulnerabilities dengan CVSS vectors yang diketahui, verifikasi bahwa risk score dihitung dengan benar menggunakan formula CVSS v3.1. Test `pattern detection`: berikan text yang mengandung malicious patterns (XSS payloads, SQL injection patterns), verifikasi bahwa pattern recognizer menemukan semua patterns. Test `correlation analysis`: berikan data dari multiple modules (port 3306 terbuka + MySQL version 5.7 + CVE database), verifikasi bahwa cross-reference menghubungkan temuan dan menghasilkan warning yang sesuai. Test `anomaly detection`: berikan dataset dengan outliers, verifikasi bahwa anomaly detector mengidentifikasi outliers dengan benar. Test `performance`: verifikasi bahwa analyzer menyelesaikan analisis dalam 5 menit untuk website dengan 100 halaman (sesuai performance contract).
+
+---
+
+#### **3. `test_integration.rs` (Rust)**
+
+**Tugas:** Menguji integrasi semua modules bekerja sama dengan baik secara end-to-end.
+
+**Tujuan:** File ini berisi integration tests yang menguji seluruh sistem dari awal hingga akhir. Implementasi `testcontainers` untuk menspin-up test environment (PostgreSQL container, Redis container, Nginx container) secara otomatis. Test database di-populate dengan sample data (100 test domains, 1000 vulnerabilities) untuk memastikan data tersedia. Test `end-to-end scanning`: jalankan full scan pada test website (`httpbin` local atau mock server), verifikasi bahwa semua modules berjalan dengan sukses dan menghasilkan data yang lengkap. Test `scan -> analyze -> report -> export` pipeline: setelah scan selesai, jalankan analysis, generate report dalam semua format (JSON, TXT, DOCS, CSV, HTML, PDF), verifikasi bahwa semua report terbuat dengan benar dan tidak ada error. Test `API integration`: jalankan REST API server, kirim request ke semua endpoints (POST /scan, GET /status, GET /report, POST /analyze, GET /export), verifikasi response yang benar dan status codes yang sesuai. Test `error recovery`: simulasi kegagalan network (gunakan mock yang gagal), verifikasi bahwa sistem melakukan retry dengan exponential backoff dan tidak crash. Test `data persistence`: verifikasi bahwa data tersimpan dengan benar di database dan dapat di-retrieve setelah restart. Verifikasi output dengan **golden files** (files berisi expected output yang telah disetujui) untuk memastikan konsistensi hasil.
+
+---
+
+#### **4. `test_security_modules.rs` (Rust)**
+
+**Tugas:** Menguji secara khusus semua security modules untuk memastikan deteksi kerentanan akurat.
+
+**Tujuan:** File ini berisi tests khusus untuk security modules dengan sample data yang mengandung vulnerabilities dan yang tidak. Test `XSS detection`: buat sample halaman dengan XSS vulnerabilities (reflected, stored, DOM-based), verifikasi bahwa XSS detector menemukan semua vulnerabilities dengan confidence level yang sesuai. Test dengan XSS payload list (100+ payloads) untuk memastikan deteksi komprehensif. Test `SQL injection detection`: buat sample form dengan SQL injection vulnerabilities (boolean-based, time-based, error-based, union-based), verifikasi bahwa SQL injection detector menemukan semua vulnerabilities dengan tipe yang benar. Test `CSRF detection`: buat sample form dengan dan tanpa CSRF token, dengan berbagai konfigurasi SameSite cookie, verifikasi bahwa CSRF analyzer mengidentifikasi form yang vulnerable dengan benar. Test `header analysis`: buat sample responses dengan security headers (HSTS, CSP, X-Frame-Options) yang benar dan yang salah, verifikasi bahwa header analyzer memberi score yang sesuai. Test `cookie scanner`: buat sample cookies dengan berbagai konfigurasi (Secure, HttpOnly, SameSite), verifikasi bahwa cookie scanner mengidentifikasi konfigurasi yang tidak aman.
+
+---
+
+#### **5. `test_agents.rs` (Rust)**
+
+**Tugas:** Menguji semua fungsionalitas agent system untuk memastikan koordinasi dan reliability.
+
+**Tujuan:** File ini berisi tests untuk agent system yang memverifikasi semua aspek agent lifecycle dan komunikasi. Test `agent lifecycle`: buat agent, jalankan `init()` -> `run()` -> `pause()` -> `resume()` -> `shutdown()`, verifikasi bahwa state transition berjalan dengan benar sesuai kontrak. Test `inter-agent communication`: buat multiple agents, kirim message antar agents via message bus, verifikasi bahwa message diterima dengan benar dan payload tidak corrupt. Test `state persistence`: simpan state agent ke storage, restart agent, verifikasi bahwa state di-restore dengan benar. Test `error recovery`: simulasi agent crash (panic), verifikasi bahwa supervisor mendeteksi heartbeat missing dan merestart agent secara otomatis. Test `monitoring agent`: buat monitoring agent dengan simulated changes (new vulnerability, port change), verifikasi bahwa agent mendeteksi perubahan dan generate alert dengan severity yang benar. Test `reconnaissance agent`: jalankan reconnaissance agent pada sample domain, verifikasi bahwa semua stage (WHOIS, DNS, subdomains, technologies) selesai dengan hasil yang valid. Test `reporting agent`: jalankan reporting agent dengan sample data, verifikasi bahwa report dihasilkan dalam semua format yang didukung. Test `concurrent agents`: jalankan 10 agents secara bersamaan, verifikasi bahwa tidak ada race condition dan semua agents selesai dengan sukses.
+
+---
+
+**docs folder explanation:**
+
+---
+
+## 📂 **`docs/` - DOCUMENTATION**
+
+---
+
+#### **1. `architecture.md`**
+
+**Task:** Document the system architecture in detail with diagrams and comprehensive explanations.
+
+**Purpose:** This file is the main architecture documentation explaining the entire IWS system design. Uses C4 model for visualization: **System Context diagram** showing IWS as the main system interacting with users (CLI, API), databases (PostgreSQL, Redis), and external services (Shodan, VirusTotal, etc.). **Container diagram** showing containers within the system: Core Engine (Rust), Orchestrator (Go), AI Models (Python), Database, Cache, API Gateway, and Reverse Proxy. **Component diagram** for each container: Core Engine has Scanner, Analyzer, Extractor, Validator, and Engine components. **Decision records (ADR)** for important design decisions: why Rust for core engine (performance, memory safety), Go for orchestrator (concurrency, simplicity), Python for AI (library ecosystem, flexibility). **Data flow diagrams** showing data flow from user input through scan, analysis, storage, to reporting. **Scalability considerations**: horizontal scaling, load balancing, connection pooling, caching strategy, and database sharding. **Security considerations**: encryption at rest, encryption in transit, authentication, authorization, rate limiting, and secure coding practices.
+
+---
+
+#### **2. `deployment_guide.md`**
+
+**Task:** Provide complete deployment guide for all environments and platforms.
+
+**Purpose:** This file is a step-by-step guide for installing and running IWS on various platforms. **Prerequisites**: list of required software (Python 3.11+, Rust 1.75+, Go 1.21+, PostgreSQL 15+, Redis 7+, Docker, kubectl) with installation commands for each OS. **Installation on Termux**: specific steps for Android using Termux (pkg install, setup storage, install dependencies, run). **Installation on Linux**: for Ubuntu/Debian (apt), CentOS/RHEL (yum), Arch (pacman), with complete commands. **Installation on Windows**: using WSL2 or native with environment setup guide. **Docker deployment**: build image, run container with docker-compose, environment variables configuration. **Kubernetes deployment**: apply manifests, configure secrets, setup ingress with TLS, HPA configuration. **Configuration guide**: explanation of each environment variable in .env, required API keys, and how to obtain them. **Database setup**: initial database initialization guide, migrations, and backup. **Monitoring and logging setup**: how to configure Prometheus metrics, Grafana dashboards, and ELK stack for log aggregation. **Troubleshooting common deployment issues**: port conflicts, database connection failures, permission errors, memory issues.
+
+---
+
+#### **3. `scanning_profiles.md`**
+
+**Task:** Document all available scanning profiles and usage guidelines.
+
+**Purpose:** This file explains in detail each available scanning profile. **Aggressive Profile**: for fast scanning with high resources (Threads=100, Timeout=10s, Delay=0, MaxPages=1000). When to use: for quick testing, internal scanning, when speed is more important than stealth. **Moderate Profile**: for balanced scanning (Threads=50, Timeout=15s, Delay=100ms, MaxPages=500). When to use: default profile, for standard scanning, balance between speed and stealth. **Stealth Profile**: for stealth scanning (Threads=10, Timeout=30s, Delay=1000ms, MaxPages=100). When to use: when not wanting to be detected, for production environment, when target has WAF or rate limiting. **Comprehensive Profile**: for in-depth scanning (Threads=30, Timeout=20s, Delay=200ms, MaxPages=2000). When to use: for compliance audit, thorough security assessment, when coverage is more important than speed. **Custom Profile**: guide for creating custom profiles with parameters: threads (concurrent requests), timeout (per request timeout), delay (between requests), max_pages (maximum pages), follow_redirects (whether to follow redirects), respect_robots (whether to respect robots.txt). Explanation of parameter impact: threads affect speed and resource usage, timeout affects reliability, delay affects stealth, max_pages affects coverage. Best practices for each scenario: testing (aggressive), production (stealth), compliance (comprehensive), standard (moderate).
+
+---
+
+#### **4. `api_documentation.md`**
+
+**Task:** Provide complete API endpoints documentation with OpenAPI/Swagger specification.
+
+**Purpose:** This file is the OpenAPI/Swagger specification documenting all API endpoints. **Authentication**: how to get JWT token, using API key in header `X-API-Key`, role-based access (admin, user, guest). **Endpoints**: `POST /api/v1/scan` - body: `{"url": "example.com", "profile": "moderate"}`, response: `{"scan_id": "uuid", "status": "pending"}`. `GET /api/v1/scan/:id/status` - response: `{"scan_id": "uuid", "state": "scanning", "progress": 75, "current_step": "XSS Detection"}`. `GET /api/v1/scan/:id/report` - response: `{"format": "json", "data": {...}}` (with query param `?format=pdf`). `POST /api/v1/analyze/:id` - triggers analysis on completed scan. `GET /api/v1/export/:id/:format` - download report in specified format (json, txt, docs, csv, html, pdf). `GET /api/v1/history` - with pagination (`?page=1&limit=20&filter=completed`). `POST /api/v1/monitor` - body: `{"url": "example.com", "schedule": "daily"}`. **Error codes**: list of all possible error codes (E1001: Scan not found, E1002: Invalid URL, E1003: Rate limit exceeded, E1004: Authentication failed, E1005: Permission denied, E1006: Invalid format, E1007: Analysis failed). **Rate limiting**: policy per IP (100/minute), per API key tier (admin: 1000/hour, user: 100/hour, guest: 10/hour). **Example requests and responses** for each endpoint with curl commands.
+
+---
+
+#### **5. `troubleshooting.md`**
+
+**Task:** Provide troubleshooting guide for common issues that may be encountered.
+
+**Purpose:** This file is a guide for diagnosing and fixing common issues. **Installation issues**: "Command not found: cargo" -> install Rust with `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`. "Python version too old" -> install Python 3.11+ using `apt install python3.11` or `brew install python@3.11`. **Connection issues**: "Connection refused" -> check firewall (`ufw status`), check service running (`systemctl status iws`), check port (`netstat -tlnp | grep 8080`). "Rate limit exceeded" -> wait or upgrade API key tier, check `Retry-After` header. **Database issues**: "Database connection failed" -> check credentials in `.env`, check PostgreSQL running (`systemctl status postgresql`), check network connectivity. "Migration failed" -> run `python3 scripts/migrate_schema.py --rollback`, check migration logs, verify database integrity. **Scanning issues**: "Scan stuck at 0%" -> check network connectivity, check target URL accessible, check DNS resolution. "No vulnerabilities found" -> check scanning profile (stealth may have limited coverage), check target is actually vulnerable, verify scanner configuration. **Performance issues**: "High memory usage" -> reduce threads in profile, enable memory limits, increase swap space. "Slow scanning" -> increase threads, reduce delay, check network bandwidth. **Diagnostic commands**: list of commands for diagnostic (`iws status --details`, `iws config --list`, `journalctl -u iws -n 100`, `ps aux | grep iws`, `netstat -an | grep 8080`). **Getting help**: how to collect logs, create issue on GitHub, contact support.
+
+---
+
+#### **6. `contributions.md`**
+
+**Task:** Provide contributor guide for developers who want to contribute to the IWS project.
+
+**Purpose:** This file is a guide for developers who want to contribute to the IWS project. **Development setup**: how to set up development environment: clone repo, setup virtual environment, install dependencies, setup pre-commit hooks. **Coding guidelines**: Rust (rustfmt for formatting, clippy for linting, documentation with `///`), Go (gofmt for formatting, golint for linting, documentation with comments), Python (black for formatting, flake8 for linting, isort for import sorting, mypy for type checking). **Testing requirements**: all tests must pass (`cargo test`, `go test`, `pytest`), coverage must be > 80% (`cargo tarpaulin`, `go test -cover`, `pytest --cov`). **PR process**: fork repository, create branch (`feature/feature-name` or `fix/bug-name`), commit with descriptive messages (conventional commits), push and create Pull Request. **PR review process**: minimum 2 reviewers, all comments resolved, CI/CD tests must pass, documentation updated. **Code of Conduct**: standards for contributor interaction (respectful, inclusive, constructive feedback). **Project structure**: brief explanation of project structure and where to add new features. **Release process**: versioning with semantic versioning, changelog maintenance, release notes. **Security reporting**: procedure for reporting security vulnerabilities privately.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`docs/` - DOKUMENTASI**
+
+---
+
+#### **1. `architecture.md`**
+
+**Tugas:** Mendokumentasikan arsitektur sistem secara mendetail dengan diagram dan penjelasan komprehensif.
+
+**Tujuan:** File ini adalah dokumentasi arsitektur utama yang menjelaskan seluruh desain sistem IWS. Menggunakan C4 model untuk visualisasi: **System Context diagram** yang menunjukkan IWS sebagai sistem utama yang berinteraksi dengan pengguna (CLI, API), database (PostgreSQL, Redis), dan layanan eksternal (Shodan, VirusTotal, dll). **Container diagram** yang menunjukkan container-container dalam sistem: Core Engine (Rust), Orchestrator (Go), AI Models (Python), Database, Cache, API Gateway, dan Reverse Proxy. **Component diagram** untuk setiap container: Core Engine memiliki komponen Scanner, Analyzer, Extractor, Validator, dan Engine. **Decision records (ADR)** untuk keputusan desain penting: mengapa Rust untuk core engine (performance, memory safety), Go untuk orchestrator (concurrency, simplicity), Python untuk AI (library ecosystem, flexibility). **Data flow diagrams** yang menunjukkan alur data dari user input melalui scan, analysis, storage, hingga reporting. **Scalability considerations**: horizontal scaling, load balancing, connection pooling, caching strategy, dan database sharding. **Security considerations**: encryption at rest, encryption in transit, authentication, authorization, rate limiting, dan secure coding practices.
+
+---
+
+#### **2. `deployment_guide.md`**
+
+**Tugas:** Menyediakan panduan deployment lengkap untuk semua environment dan platform.
+
+**Tujuan:** File ini adalah panduan langkah-demi-langkah untuk menginstal dan menjalankan IWS di berbagai platform. **Prerequisites**: daftar software yang dibutuhkan (Python 3.11+, Rust 1.75+, Go 1.21+, PostgreSQL 15+, Redis 7+, Docker, kubectl) dengan perintah instalasi untuk setiap OS. **Installation on Termux**: langkah-langkah spesifik untuk Android menggunakan Termux (pkg install, setup storage, install dependencies, run). **Installation on Linux**: untuk Ubuntu/Debian (apt), CentOS/RHEL (yum), Arch (pacman), dengan perintah lengkap. **Installation on Windows**: menggunakan WSL2 atau native dengan panduan setup environment. **Docker deployment**: build image, run container dengan docker-compose, environment variables configuration. **Kubernetes deployment**: apply manifests, configure secrets, setup ingress dengan TLS, HPA configuration. **Configuration guide**: penjelasan setiap environment variable di .env, API keys yang diperlukan, dan cara mendapatkannya. **Database setup**: panduan inisialisasi database pertama kali, migrasi, dan backup. **Monitoring and logging setup**: cara mengkonfigurasi Prometheus metrics, Grafana dashboards, dan ELK stack untuk log aggregation. **Troubleshooting common deployment issues**: port conflicts, database connection failures, permission errors, memory issues.
+
+---
+
+#### **3. `scanning_profiles.md`**
+
+**Tugas:** Mendokumentasikan semua profil scanning yang tersedia dan panduan penggunaannya.
+
+**Tujuan:** File ini menjelaskan secara detail setiap profil scanning yang tersedia. **Aggressive Profile**: untuk scanning cepat dengan resource tinggi (Threads=100, Timeout=10s, Delay=0, MaxPages=1000). Kapan menggunakan: untuk testing cepat, internal scanning, saat kecepatan lebih penting daripada stealth. **Moderate Profile**: untuk scanning balanced (Threads=50, Timeout=15s, Delay=100ms, MaxPages=500). Kapan menggunakan: default profile, untuk scanning standar, keseimbangan antara speed dan stealth. **Stealth Profile**: untuk scanning stealth (Threads=10, Timeout=30s, Delay=1000ms, MaxPages=100). Kapan menggunakan: saat tidak ingin terdeteksi, untuk production environment, saat target memiliki WAF atau rate limiting. **Comprehensive Profile**: untuk scanning mendalam (Threads=30, Timeout=20s, Delay=200ms, MaxPages=2000). Kapan menggunakan: untuk compliance audit, security assessment menyeluruh, saat coverage lebih penting daripada speed. **Custom Profile**: panduan membuat profile kustom dengan parameter: threads (jumlah concurrent requests), timeout (timeout per request), delay (delay antar request), max_pages (maksimum halaman), follow_redirects (apakah mengikuti redirect), respect_robots (apakah menghormati robots.txt). Penjelasan impact setiap parameter: threads mempengaruhi speed dan resource usage, timeout mempengaruhi reliability, delay mempengaruhi stealth, max_pages mempengaruhi coverage. Best practices untuk setiap skenario: testing (aggressive), production (stealth), compliance (comprehensive), standard (moderate).
+
+---
+
+#### **4. `api_documentation.md`**
+
+**Tugas:** Menyediakan dokumentasi lengkap API endpoints dengan OpenAPI/Swagger specification.
+
+**Tujuan:** File ini adalah OpenAPI/Swagger specification yang mendokumentasikan semua API endpoints. **Authentication**: cara mendapatkan JWT token, menggunakan API key di header `X-API-Key`, role-based access (admin, user, guest). **Endpoints**: `POST /api/v1/scan` - body: `{"url": "example.com", "profile": "moderate"}`, response: `{"scan_id": "uuid", "status": "pending"}`. `GET /api/v1/scan/:id/status` - response: `{"scan_id": "uuid", "state": "scanning", "progress": 75, "current_step": "XSS Detection"}`. `GET /api/v1/scan/:id/report` - response: `{"format": "json", "data": {...}}` (bisa dengan query param `?format=pdf`). `POST /api/v1/analyze/:id` - triggers analysis on completed scan. `GET /api/v1/export/:id/:format` - download report in specified format (json, txt, docs, csv, html, pdf). `GET /api/v1/history` - dengan pagination (`?page=1&limit=20&filter=completed`). `POST /api/v1/monitor` - body: `{"url": "example.com", "schedule": "daily"}`. **Error codes**: daftar semua error codes yang mungkin (E1001: Scan not found, E1002: Invalid URL, E1003: Rate limit exceeded, E1004: Authentication failed, E1005: Permission denied, E1006: Invalid format, E1007: Analysis failed). **Rate limiting**: policy per IP (100/minute), per API key tier (admin: 1000/hour, user: 100/hour, guest: 10/hour). **Example requests and responses** untuk setiap endpoint dengan curl commands.
+
+---
+
+#### **5. `troubleshooting.md`**
+
+**Tugas:** Menyediakan panduan troubleshooting untuk masalah umum yang mungkin dihadapi.
+
+**Tujuan:** File ini adalah panduan untuk mendiagnosis dan memperbaiki masalah umum. **Installation issues**: "Command not found: cargo" -> install Rust with `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`. "Python version too old" -> install Python 3.11+ menggunakan `apt install python3.11` atau `brew install python@3.11`. **Connection issues**: "Connection refused" -> check firewall (`ufw status`), check service running (`systemctl status iws`), check port (`netstat -tlnp | grep 8080`). "Rate limit exceeded" -> wait or upgrade API key tier, check `Retry-After` header. **Database issues**: "Database connection failed" -> check credentials in `.env`, check PostgreSQL running (`systemctl status postgresql`), check network connectivity. "Migration failed" -> run `python3 scripts/migrate_schema.py --rollback`, check migration logs, verify database integrity. **Scanning issues**: "Scan stuck at 0%" -> check network connectivity, check target URL accessible, check DNS resolution. "No vulnerabilities found" -> check scanning profile (stealth may have limited coverage), check target is actually vulnerable, verify scanner configuration. **Performance issues**: "High memory usage" -> reduce threads in profile, enable memory limits, increase swap space. "Slow scanning" -> increase threads, reduce delay, check network bandwidth. **Diagnostic commands**: list of commands untuk diagnostic (`iws status --details`, `iws config --list`, `journalctl -u iws -n 100`, `ps aux | grep iws`, `netstat -an | grep 8080`). **Getting help**: how to collect logs, create issue on GitHub, contact support.
+
+---
+
+#### **6. `contributions.md`**
+
+**Tugas:** Menyediakan panduan untuk kontributor yang ingin mengembangkan proyek IWS.
+
+**Tujuan:** File ini adalah panduan bagi developer yang ingin berkontribusi ke proyek IWS. **Development setup**: cara setup environment development: clone repo, setup virtual environment, install dependencies, setup pre-commit hooks. **Coding guidelines**: Rust (rustfmt untuk formatting, clippy untuk linting, dokumentasi dengan `///`), Go (gofmt untuk formatting, golint untuk linting, dokumentasi dengan comments), Python (black untuk formatting, flake8 untuk linting, isort untuk import sorting, mypy untuk type checking). **Testing requirements**: semua tests harus pass (`cargo test`, `go test`, `pytest`), coverage harus > 80% (`cargo tarpaulin`, `go test -cover`, `pytest --cov`). **PR process**: fork repository, create branch (`feature/feature-name` atau `fix/bug-name`), commit dengan descriptive messages (conventional commits), push dan create Pull Request. **PR review process**: minimal 2 reviewers, semua comments resolved, CI/CD tests must pass, documentation updated. **Code of Conduct**: standar untuk interaksi antar kontributor (respectful, inclusive, constructive feedback). **Project structure**: penjelasan singkat tentang struktur proyek dan di mana menambahkan fitur baru. **Release process**: versioning dengan semantic versioning, changelog maintenance, release notes. **Security reporting**: prosedur untuk melaporkan security vulnerabilities secara private.
+
+---
+
+**scripts folder explanation:**
+
+---
+
+## 📂 **`scripts/` - UTILITY SCRIPTS**
+
+---
+
+#### **1. `init_database.py` (Python)**
+
+**Task:** Initialize the database for the first time with all tables, indexes, and default data.
+
+**Purpose:** This file is the first setup script that must be run after installation to prepare the database. Implements `init_database()` which: connects to the database using `DATABASE_URL` from environment variables (`os.environ.get('DATABASE_URL')`). Reads `schema.sql` file from `database/` directory and executes all SQL statements sequentially. Creates all tables defined in the schema (users, scan_results, vulnerabilities, agent_states, configuration). Creates indexes for query optimization (scan_results(user_id, started_at), vulnerabilities(scan_id, severity), agent_states(agent_name)). Creates foreign key constraints with ON DELETE CASCADE to maintain referential integrity. Inserts default data: admin user (`username='admin', password_hash=bcrypt.hash('admin123'), role='admin'`) for first access. Default scanning profiles (aggressive, moderate, stealth, comprehensive) into `configuration` table with key 'scanning_profiles'. Default configuration (max_threads=50, default_timeout=30, default_profile='moderate') into `configuration` table. Checks if database already exists (check table exists), if so skip initialization to prevent data loss. Implements `--force` flag to force re-initialization (drop all tables and recreate). Implements `--sample-data` flag to insert sample data for testing (100 domains, 1000 vulnerabilities). Logs each step with timestamp for process tracking.
+
+---
+
+#### **2. `migrate_schema.py` (Python)**
+
+**Task:** Manage database schema migrations to update structure without losing data.
+
+**Purpose:** This file manages schema changes over time. Implements using `alembic` for migration management. `alembic init` for initial setup (creates `migrations/` directory and `alembic.ini`). `alembic revision --autogenerate -m "description"` to automatically generate migration script based on SQLAlchemy model changes. `alembic upgrade head` to apply all pending migrations to the database. `alembic downgrade -1` to rollback one migration if issues occur. Implements `create_migration(name: str)` to create new migration file with timestamp and template (upgrade and downgrade sections). Automatic database backup before running migrations using `pg_dump` to prevent data loss if migration fails. Implements `validate_schema()` to verify schema integrity after migration (check foreign keys, indexes, constraints). Implements `--dry-run` flag to preview migration without executing. Implements `--sql` flag to generate SQL statements without executing. Implements `--version` flag to display current schema version. Implements `--history` flag to display migration history already executed.
+
+---
+
+#### **3. `backup_storage.rs` (Rust)**
+
+**Task:** Perform automatic and encrypted backups of all storage data.
+
+**Purpose:** This file manages system data backup for disaster recovery. Implements `backup_storage()` which: dumps database using `pg_dump` with custom format (`pg_dump -Fc -f backup.dump`) for compression and efficiency. Backs up file data (`data/scans/`, `data/reports/`, `data/exports/`) using `tar` with compression (`tar -czf data_backup.tar.gz data/`). Compresses all backups with `gzip` to save space. Encrypts all backups with AES-256 using `encryption.rs` utility. Uploads to cloud storage (AWS S3 using `aws-sdk-s3`, Google Cloud Storage, or Azure Blob) for offsite backup. Retention policy: keep last 7 daily backups, 4 weekly backups, 12 monthly backups (total 23 backup sets). Implements `restore_backup(backup_id: &str)` to restore from backup: download from cloud, decrypt, decompress, restore database using `pg_restore`, restore file data. Implements `list_backups()` to display all available backups with timestamp and size. Implements `verify_backup()` to verify backup integrity (checksum verification). Implements `--schedule` flag to run backups automatically with cron expression (e.g., daily at 2 AM). Implements `--cleanup` flag to delete old backups based on retention policy. Logs all backup activity to `logs/backup.log` for audit trail.
+
+---
+
+#### **4. `cleanup_cache.rs` (Rust)**
+
+**Task:** Clean up cache and temporary files to save disk space and maintain performance.
+
+**Purpose:** This file manages cleanup of temporary data and cache. Implements `cleanup_cache()` which: iterates `data/cache/` directory and deletes files older than 7 days (using `std::fs::metadata()` and `SystemTime::elapsed()`). Cleans `data/temp/` directory by deleting files older than 24 hours. Rotates log files: compresses log files if size > 100MB (`access.log`, `error.log`, `scanner_activity.log`, `agent_trace.log`), keeps 5 archives, compresses with gzip. Cache invalidation: removes entries from `dns_cache.db` that have expired (TTL exceeded), removes entries from `html_cache.db` that have expired, removes entries from `entity_cache.db` that have expired. Implements `--dry-run` flag to preview files to be deleted without actual deletion. Implements `--verbose` flag to display details of each file deleted. Implements `--age` flag to specify maximum file age (default 7 days). Implements `--size` flag to specify size threshold for log rotation (default 100MB). Implements `--include` and `--exclude` patterns for file selection. Logs all cleanup activity to `logs/cleanup.log` for audit trail. Implements `schedule_cleanup()` to run cleanup automatically (daily at 3 AM) using cron.
+
+---
+
+#### **5. `generate_analysis_report.rs` (Rust)**
+
+**Task:** Automatically generate analysis reports based on schedule or trigger.
+
+**Purpose:** This file automates analysis report generation. Implements `generate_report()` which: queries database for scans that are completed (`SELECT * FROM scan_results WHERE status = 'completed'`). For each scan that has not been analyzed or report not generated, runs analysis using `analysis_agent`. Generates reports in all formats (JSON, TXT, DOCS, CSV, HTML, PDF) and saves to `data/reports/{format}/`. Saves report metadata to database with timestamp for tracking. Implements `--scan-id` flag to generate report for specific scan ID. Implements `--format` flag to generate only specific format (default: all). Implements `--email` flag to send report via email to configured recipients (from `settings.rs`). Implements `--schedule` flag to run automatically with cron expression (e.g., daily at 9 AM for executive summary, weekly at 5 PM for technical report). Implements `--period` flag to generate report for specific period (`daily`, `weekly`, `monthly`) - queries scans within that period and aggregates results. Implements `--output` flag to specify output directory (default: `data/reports/`). Implements notification after report completion: sends notification to configured webhooks (Slack, Discord, Telegram). Implements `archive_old_reports()` to archive reports older than 90 days to cold storage. Logs all report generation activity to `logs/report.log` for audit trail.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`scripts/` - SCRIPT UTILITY**
+
+---
+
+#### **1. `init_database.py` (Python)**
+
+**Tugas:** Menginisialisasi database untuk pertama kali dengan semua tabel, indeks, dan data default.
+
+**Tujuan:** File ini adalah script setup pertama yang harus dijalankan setelah instalasi untuk menyiapkan database. Implementasi `init_database()` yang melakukan: koneksi ke database menggunakan `DATABASE_URL` dari environment variables (`os.environ.get('DATABASE_URL')`). Membaca file `schema.sql` dari direktori `database/` dan mengeksekusi semua SQL statements secara sequential. Membuat semua tabel yang didefinisikan di schema (users, scan_results, vulnerabilities, agent_states, configuration). Membuat indeks untuk optimasi query (scan_results(user_id, started_at), vulnerabilities(scan_id, severity), agent_states(agent_name)). Membuat foreign key constraints dengan ON DELETE CASCADE untuk maintain referential integrity. Menginsert data default: admin user (`username='admin', password_hash=bcrypt.hash('admin123'), role='admin'`) untuk akses pertama. Profil scanning default (aggressive, moderate, stealth, comprehensive) ke dalam table `configuration` dengan key 'scanning_profiles'. Configuration default (max_threads=50, default_timeout=30, default_profile='moderate') ke dalam table `configuration`. Memeriksa apakah database sudah ada sebelumnya (check table exists), jika sudah ada maka skip inisialisasi untuk mencegah data loss. Implementasi `--force` flag untuk force re-initialization (drop semua tabel dan recreate). Implementasi `--sample-data` flag untuk menginsert sample data untuk testing (100 domain, 1000 vulnerabilities). Logging setiap langkah dengan timestamp untuk tracking proses.
+
+---
+
+#### **2. `migrate_schema.py` (Python)**
+
+**Tugas:** Mengelola migrasi schema database untuk update struktur tanpa kehilangan data.
+
+**Tujuan:** File ini mengelola perubahan schema database seiring waktu. Implementasi menggunakan `alembic` untuk migration management. `alembic init` untuk inisialisasi awal (membuat direktori `migrations/` dan `alembic.ini`). `alembic revision --autogenerate -m "description"` untuk generate migration script secara otomatis berdasarkan perubahan model SQLAlchemy. `alembic upgrade head` untuk mengaplikasikan semua migration yang pending ke database. `alembic downgrade -1` untuk rollback satu migration terakhir jika terjadi masalah. Implementasi `create_migration(name: str)` untuk membuat migration file baru dengan timestamp dan template (upgrade dan downgrade sections). Backup database otomatis sebelum menjalankan migrasi menggunakan `pg_dump` untuk mencegah data loss jika migrasi gagal. Implementasi `validate_schema()` untuk memverifikasi integritas schema setelah migrasi (check foreign keys, indexes, constraints). Implementasi `--dry-run` flag untuk preview migration tanpa mengeksekusi. Implementasi `--sql` flag untuk generate SQL statements tanpa execute. Implementasi `--version` flag untuk menampilkan versi schema saat ini. Implementasi `--history` flag untuk menampilkan riwayat migrasi yang sudah dijalankan.
+
+---
+
+#### **3. `backup_storage.rs` (Rust)**
+
+**Tugas:** Melakukan backup semua data storage secara otomatis dan terenkripsi.
+
+**Tujuan:** File ini mengelola backup data sistem untuk disaster recovery. Implementasi `backup_storage()` yang melakukan: dump database menggunakan `pg_dump` dengan format custom (`pg_dump -Fc -f backup.dump`) untuk kompresi dan efisiensi. Backup file data (`data/scans/`, `data/reports/`, `data/exports/`) menggunakan `tar` dengan compression (`tar -czf data_backup.tar.gz data/`). Compress semua backup dengan `gzip` untuk menghemat ruang. Encrypt semua backup dengan AES-256 menggunakan `encryption.rs` utility. Upload ke cloud storage (AWS S3 menggunakan `aws-sdk-s3`, Google Cloud Storage, atau Azure Blob) untuk offsite backup. Retensi policy: keep last 7 daily backups, 4 weekly backups, 12 monthly backups (total 23 backup sets). Implementasi `restore_backup(backup_id: &str)` untuk restore dari backup: download dari cloud, decrypt, decompress, restore database menggunakan `pg_restore`, restore file data. Implementasi `list_backups()` untuk menampilkan semua backup yang tersedia dengan timestamp dan size. Implementasi `verify_backup()` untuk memverifikasi integritas backup (checksum verification). Implementasi `--schedule` flag untuk menjalankan backup secara otomatis dengan cron expression (contoh: daily at 2 AM). Implementasi `--cleanup` flag untuk menghapus backup lama berdasarkan retensi policy. Logging semua aktivitas backup ke `logs/backup.log` untuk audit trail.
+
+---
+
+#### **4. `cleanup_cache.rs` (Rust)**
+
+**Tugas:** Membersihkan cache dan temporary files untuk menghemat ruang disk dan menjaga performa.
+
+**Tujuan:** File ini mengelola pembersihan data sementara dan cache. Implementasi `cleanup_cache()` yang melakukan: iterate direktori `data/cache/` dan menghapus file yang lebih tua dari 7 hari (menggunakan `std::fs::metadata()` dan `SystemTime::elapsed()`). Membersihkan direktori `data/temp/` dengan menghapus file yang lebih tua dari 24 jam. Rotasi log files: kompres log file jika size > 100MB (`access.log`, `error.log`, `scanner_activity.log`, `agent_trace.log`), keep 5 archives, compress dengan gzip. Cache invalidation: menghapus entry dari `dns_cache.db` yang sudah expired (TTL exceeded), menghapus entry dari `html_cache.db` yang sudah expired, menghapus entry dari `entity_cache.db` yang sudah kadaluarsa. Implementasi `--dry-run` flag untuk preview files yang akan dihapus tanpa melakukan penghapusan. Implementasi `--verbose` flag untuk menampilkan detail setiap file yang dihapus. Implementasi `--age` flag untuk menentukan umur maksimum file (default 7 hari). Implementasi `--size` flag untuk menentukan size threshold untuk log rotation (default 100MB). Implementasi `--include` dan `--exclude` pattern untuk seleksi file. Logging semua aktivitas cleanup ke `logs/cleanup.log` untuk audit trail. Implementasi `schedule_cleanup()` untuk menjalankan cleanup secara otomatis (daily at 3 AM) menggunakan cron.
+
+---
+
+#### **5. `generate_analysis_report.rs` (Rust)**
+
+**Tugas:** Generate analysis report secara otomatis berdasarkan schedule atau trigger.
+
+**Tujuan:** File ini mengotomatiskan pembuatan laporan analysis. Implementasi `generate_report()` yang melakukan: query database untuk mencari scan yang sudah completed (`SELECT * FROM scan_results WHERE status = 'completed'`). Untuk setiap scan yang belum dianalisis atau report belum digenerate, jalankan analysis menggunakan `analysis_agent`. Generate reports dalam semua format (JSON, TXT, DOCS, CSV, HTML, PDF) dan simpan ke `data/reports/{format}/`. Save report metadata ke database dengan timestamp untuk tracking. Implementasi `--scan-id` flag untuk generate report untuk scan ID tertentu. Implementasi `--format` flag untuk generate hanya format tertentu (default: all). Implementasi `--email` flag untuk mengirim report via email ke configured recipients (dari `settings.rs`). Implementasi `--schedule` flag untuk menjalankan secara otomatis dengan cron expression (contoh: daily at 9 AM untuk executive summary, weekly at 5 PM untuk technical report). Implementasi `--period` flag untuk generate report untuk period tertentu (`daily`, `weekly`, `monthly`) - query scan dalam periode tersebut dan aggregate hasilnya. Implementasi `--output` flag untuk menentukan direktori output (default: `data/reports/`). Implementasi `notification` setelah report selesai: kirim notifikasi ke webhook yang dikonfigurasi (Slack, Discord, Telegram). Implementasi `archive_old_reports()` untuk mengarsipkan report yang lebih tua dari 90 hari ke cold storage. Logging semua aktivitas report generation ke `logs/report.log` untuk audit trail.
+
+---
+
+**data folder explanation:**
+
+---
+
+## 📂 **`data/` - DATA STORAGE**
+
+---
+
+#### **1. `scans/` - Scan Results**
+
+**Task:** Store all scan result data across various stages.
+
+**Purpose:** This folder is the main storage location for all scanning data generated by the system. Divided into three subfolders with different purposes:
+
+- **`active/`**: Stores currently running scan data. File naming: `{scan_id}.json` in JSON format containing current scan state. Data structure: `ScanData` with fields: `id` (scan UUID), `url` (target URL), `profile` (scanning profile used), `status` (active, paused, error), `progress` (percentage 0-100), `start_time` (start timestamp), `modules_completed` (list of completed modules), `modules_pending` (list of pending modules), `results` (partial results from completed modules), `errors` (errors that occurred). Lock file: `{scan_id}.lock` to prevent concurrent writes from multiple processes, using `flock` system call. Implements auto-save every 30 seconds to prevent data loss in case of crash.
+
+- **`completed/`**: Stores completed scan data (status completed or failed). JSON format with complete structure: all module results, timing information, errors, summary statistics. File naming: `{scan_id}_{timestamp}.json` with completion timestamp. Data is stored permanently and used for analysis, reporting, and historical reference.
+
+- **`archived/`**: Stores old scan data that has been archived to save space. Files are compressed with gzip (`.json.gz`) and automatically archived by `scripts/cleanup_cache.rs` for data older than 90 days. Metadata is stored in the database for reference (scan_id, url, timestamp, archive_location) to remain queryable even after data is archived.
+
+---
+
+#### **2. `reports/` - Reports**
+
+**Task:** Store all reports generated in various formats.
+
+**Purpose:** This folder stores reports generated by the reporting agent in 6 different formats, each with its own subfolder:
+
+- **`json/`**: Reports in structured JSON format. File naming: `{scan_id}_{timestamp}.json`. Contains complete findings data, vulnerabilities, risk scores, recommendations in JSON format that can be processed by other systems. Suitable for API integration and data interchange.
+
+- **`txt/`**: Reports in plain text format. File naming: `{scan_id}_{timestamp}.txt`. Contains executive summary, vulnerability list with severity, and recommendations in easy-to-read text format. Suitable for quick terminal review.
+
+- **`docs/`**: Reports in DOCX format (Microsoft Word). File naming: `{scan_id}_{timestamp}.docx`. Contains complete documentation with natural language narrative, tables, and professional formatting. Created using `docs_builder.rs` with Jinja2 templates. Suitable for distribution to non-technical stakeholders.
+
+- **`csv/`**: Reports in CSV format (Comma-Separated Values). File naming: `{scan_id}_{timestamp}.csv`. Contains tabular data of vulnerabilities and findings that can be opened in spreadsheets (Excel, Google Sheets). Suitable for statistical analysis and data processing.
+
+- **`html/`**: Reports in interactive HTML format. File naming: `{scan_id}_{timestamp}.html`. Contains complete report with interactive JavaScript: sorting, filtering, charts, and visualizations. Created using `html_reporter.rs` with Chart.js and DataTable. Suitable for browser-based interactive review.
+
+- **`pdf/`**: Reports in professional PDF format. File naming: `{scan_id}_{timestamp}.pdf`. Contains complete report with professional formatting, watermark, digital signature, and page numbering. Created using `pdf_generator.py` with WeasyPrint. Suitable for formal distribution and archiving.
+
+Metadata file `report_metadata.json` tracks all generated reports with fields: report_id, scan_id, format, timestamp, size, status (generated/failed), and link to file.
+
+---
+
+#### **3. `cache/` - Cache**
+
+**Task:** Store cached data to improve system performance.
+
+**Purpose:** This folder stores various caches to avoid expensive repeated operations. Consists of three SQLite database files:
+
+- **`dns_cache.db`**: SQLite database with `dns_cache` table storing DNS lookup results. Schema: `domain` (TEXT, PRIMARY KEY), `record_type` (TEXT), `records` (TEXT, JSON array of records), `ttl` (INTEGER), `expires_at` (INTEGER, timestamp). Implements TTL-based invalidation: records are valid if `expires_at > current_time`. Cache is populated on each DNS query and used to avoid repeated DNS queries for the same domain in a short period. Cache size: maximum 10,000 entries with LRU eviction.
+
+- **`html_cache.db`**: SQLite database with `html_cache` table storing fetched HTML pages. Schema: `url` (TEXT, PRIMARY KEY), `content_hash` (TEXT), `content` (TEXT, HTML content), `fetch_time` (INTEGER, timestamp). Implements content-based deduplication: before fetch, checks if URL is in cache and content_hash matches, uses cache. Cache is invalidated after 24 hours or if content_hash changes. Cache size: maximum 5,000 entries with LRU eviction.
+
+- **`entity_cache.db`**: SQLite database with `entity_cache` table storing entity recognition results. Schema: `entity_type` (TEXT), `entity_value` (TEXT, PRIMARY KEY), `context` (TEXT, JSON), `discovered_at` (INTEGER, timestamp). Stores already extracted entities (emails, phones, technologies, API keys) to avoid re-processing. Cache is invalidated after 7 days. Cache size: maximum 20,000 entries with LRU eviction.
+
+Implements cache invalidation: TTL-based (expires_at) and LRU eviction (max entries per table) to prevent uncontrolled cache growth.
+
+---
+
+#### **4. `logs/` - Logs**
+
+**Task:** Store all system logs for debugging, monitoring, and auditing.
+
+**Purpose:** This folder stores logs from various system components in JSONL format (JSON Lines) for easy parsing and analysis. Consists of four log files:
+
+- **`access.log`**: JSONL format with fields: `timestamp` (ISO 8601 datetime), `client_ip` (IP address), `method` (HTTP method), `path` (request path), `status` (HTTP status code), `response_time` (duration in ms), `user_agent` (User-Agent string), `request_id` (UUID for tracing). Records all requests to the API server. Rotation: 10MB per file, keep 5 archives.
+
+- **`error.log`**: JSONL format with fields: `timestamp`, `level` (ERROR/FATAL), `component` (component with error), `message` (error message), `stack_trace` (stack trace if available), `context` (request_id, user_id, scan_id). Records all errors occurring in the system. Rotation: 10MB per file, keep 5 archives.
+
+- **`scanner_activity.log`**: JSONL format with fields: `timestamp`, `scan_id`, `module` (module name), `event` (started, progress, completed, failed), `details` (JSON with event details), `duration` (duration in ms). Records all scanning activity: module start, progress updates, completion, errors. Used for debugging and performance analysis. Rotation: 10MB per file, keep 5 archives.
+
+- **`agent_trace.log`**: JSONL format with fields: `timestamp`, `agent_name`, `agent_state` (state transition), `message` (agent activity), `details` (JSON with details), `duration` (duration in ms). Records all agent activity: state transitions, messages sent/received, task execution, errors. Used for debugging agent system and inter-agent communication. Rotation: 10MB per file, keep 5 archives.
+
+Implements log rotation: each file has size threshold 10MB, when threshold is reached, file is rotated and compressed with gzip, keep maximum 5 archives (total 50MB per log type). Logs can be forwarded to remote server (ELK stack, Graylog) via `utils/logging_system.rs`.
+
+---
+
+#### **5. `exports/` - Data Exports**
+
+**Task:** Store data exported by users in various formats.
+
+**Purpose:** This folder stores export results requested by users via API or CLI. Each format has its own subfolder:
+
+- **`json_exports/`**: Exports in JSON format. File naming: `{scan_id}_export_{timestamp}.json`. Used when users request raw data export in JSON format.
+
+- **`txt_exports/`**: Exports in TXT format. File naming: `{scan_id}_export_{timestamp}.txt`. Used when users request summary export in plain text.
+
+- **`docs_exports/`**: Exports in DOCX format. File naming: `{scan_id}_export_{timestamp}.docx`. Used when users request complete documentation export.
+
+- **`csv_exports/`**: Exports in CSV format. File naming: `{scan_id}_export_{timestamp}.csv`. Used when users request tabular data export.
+
+- **`html_exports/`**: Exports in HTML format. File naming: `{scan_id}_export_{timestamp}.html`. Used when users request interactive report export.
+
+- **`pdf_exports/`**: Exports in PDF format. File naming: `{scan_id}_export_{timestamp}.pdf`. Used when users request professional report export.
+
+Exports are performed asynchronously via background tasks, progress is displayed in UI (CLI or WebSocket). Users can download export files via API endpoint `GET /api/v1/export/{scan_id}/{format}`. Export files have 7-day TTL, after which they are deleted by `cleanup_cache.rs` to save space.
+
+---
+
+#### **6. `temp/` - Temporary Files**
+
+**Task:** Store temporary files used during processing.
+
+**Purpose:** This folder stores temporary files used for various processing operations. Use cases include: intermediate files during large data processing (CSV files being processed), temporary downloads (files downloaded from the internet for analysis), unpacked archives (unzipped files for content extraction), image processing (screenshots generated for reports, then embedded into PDF/HTML). Files here are temporary with short lifecycle (typically < 24 hours). Periodically cleaned by `scripts/cleanup_cache.rs` which deletes files older than 24 hours. This folder is not version controlled and is ignored by `.gitignore`. Lock files are used to prevent conflicts if multiple processes try to use the same file.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`data/` - DATA STORAGE**
+
+---
+
+#### **1. `scans/` - Hasil Scanning**
+
+**Tugas:** Menyimpan semua data hasil scanning dalam berbagai tahap.
+
+**Tujuan:** Folder ini adalah tempat penyimpanan utama untuk semua data scanning yang dihasilkan sistem. Terbagi menjadi tiga subfolder dengan tujuan berbeda:
+
+- **`active/`**: Menyimpan data scanning yang sedang berjalan. File naming: `{scan_id}.json` dengan format JSON yang berisi state scanning saat ini. Struktur data: `ScanData` dengan fields: `id` (UUID scan), `url` (target URL), `profile` (scanning profile yang digunakan), `status` (active, paused, error), `progress` (persentase 0-100), `start_time` (timestamp mulai), `modules_completed` (daftar module yang sudah selesai), `modules_pending` (daftar module yang belum dijalankan), `results` (partial results dari module yang sudah selesai), `errors` (error yang terjadi). Lock file: `{scan_id}.lock` untuk mencegah concurrent writes dari multiple processes, menggunakan `flock` system call. Implementasi auto-save setiap 30 detik untuk mencegah data loss jika terjadi crash.
+
+- **`completed/`**: Menyimpan data scanning yang sudah selesai (status completed atau failed). Format JSON dengan struktur lengkap: semua module results, timing information, errors, summary statistics. File naming: `{scan_id}_{timestamp}.json` dengan timestamp selesai. Data disimpan secara permanen dan digunakan untuk analysis, reporting, dan historical reference.
+
+- **`archived/`**: Menyimpan data scanning lama yang sudah diarsipkan untuk menghemat ruang. File di-compress dengan gzip (`.json.gz`) dan diarsipkan secara otomatis oleh script `scripts/cleanup_cache.rs` untuk data yang lebih tua dari 90 hari. Metadata disimpan di database untuk referensi (scan_id, url, timestamp, archive_location) agar tetap dapat di-query meskipun data sudah di-archive.
+
+---
+
+#### **2. `reports/` - Laporan**
+
+**Tugas:** Menyimpan semua laporan yang dihasilkan dalam berbagai format.
+
+**Tujuan:** Folder ini menyimpan laporan yang dihasilkan oleh reporting agent dalam 6 format berbeda, masing-masing memiliki subfolder tersendiri:
+
+- **`json/`**: Laporan dalam format JSON terstruktur. File naming: `{scan_id}_{timestamp}.json`. Berisi data lengkap findings, vulnerabilities, risk scores, recommendations dalam format JSON yang dapat diproses oleh sistem lain. Cocok untuk integrasi API dan data interchange.
+
+- **`txt/`**: Laporan dalam plain text format. File naming: `{scan_id}_{timestamp}.txt`. Berisi ringkasan eksekutif, daftar vulnerabilities dengan severity, dan rekomendasi dalam format teks yang mudah dibaca. Cocok untuk quick review di terminal.
+
+- **`docs/`**: Laporan dalam format DOCX (Microsoft Word). File naming: `{scan_id}_{timestamp}.docx`. Berisi dokumentasi lengkap dengan narasi natural language, tabel, dan formatting profesional. Dibuat menggunakan `docs_builder.rs` dengan template Jinja2. Cocok untuk distribusi ke stakeholder non-teknis.
+
+- **`csv/`**: Laporan dalam format CSV (Comma-Separated Values). File naming: `{scan_id}_{timestamp}.csv`. Berisi data tabular dari vulnerabilities dan findings yang dapat dibuka di spreadsheet (Excel, Google Sheets). Cocok untuk analisis statistik dan data processing.
+
+- **`html/`**: Laporan dalam format HTML interaktif. File naming: `{scan_id}_{timestamp}.html`. Berisi laporan lengkap dengan JavaScript interaktif: sorting, filtering, charts, dan visualisasi. Dibuat menggunakan `html_reporter.rs` dengan Chart.js dan DataTable. Cocok untuk dibuka di browser untuk review interaktif.
+
+- **`pdf/`**: Laporan dalam format PDF profesional. File naming: `{scan_id}_{timestamp}.pdf`. Berisi laporan lengkap dengan formatting profesional, watermark, digital signature, dan page numbering. Dibuat menggunakan `pdf_generator.py` dengan WeasyPrint. Cocok untuk distribusi formal dan archiving.
+
+Metadata file `report_metadata.json` yang melacak semua reports yang di-generate dengan fields: report_id, scan_id, format, timestamp, size, status (generated/failed), dan link ke file.
+
+---
+
+#### **3. `cache/` - Cache**
+
+**Tugas:** Menyimpan data cache untuk meningkatkan performa sistem.
+
+**Tujuan:** Folder ini menyimpan berbagai cache untuk menghindari operasi berulang yang mahal. Terdiri dari tiga file SQLite database:
+
+- **`dns_cache.db`**: SQLite database dengan table `dns_cache` yang menyimpan hasil DNS lookup. Schema: `domain` (TEXT, PRIMARY KEY), `record_type` (TEXT), `records` (TEXT, JSON array of records), `ttl` (INTEGER), `expires_at` (INTEGER, timestamp). Implementasi TTL-based invalidation: records dianggap valid jika `expires_at > current_time`. Cache diisi setiap kali DNS query dilakukan, dan digunakan untuk menghindari query DNS berulang untuk domain yang sama dalam waktu singkat. Ukuran cache: maksimum 10,000 entries dengan LRU eviction.
+
+- **`html_cache.db`**: SQLite database dengan table `html_cache` yang menyimpan halaman HTML yang sudah di-fetch. Schema: `url` (TEXT, PRIMARY KEY), `content_hash` (TEXT), `content` (TEXT, HTML content), `fetch_time` (INTEGER, timestamp). Implementasi content-based deduplication: sebelum fetch, check jika URL sudah ada di cache dan content_hash sama, gunakan cache. Cache di-invalidate setelah 24 jam atau jika content_hash berubah. Ukuran cache: maksimum 5,000 entries dengan LRU eviction.
+
+- **`entity_cache.db`**: SQLite database dengan table `entity_cache` yang menyimpan hasil entity recognition. Schema: `entity_type` (TEXT), `entity_value` (TEXT, PRIMARY KEY), `context` (TEXT, JSON), `discovered_at` (INTEGER, timestamp). Menyimpan entities yang sudah diekstrak (emails, phones, technologies, API keys) untuk menghindari re-processing. Cache di-invalidate setelah 7 hari. Ukuran cache: maksimum 20,000 entries dengan LRU eviction.
+
+Implementasi cache invalidation: TTL-based (expires_at) dan LRU eviction (max entries per table) untuk mencegah cache growth tidak terkendali.
+
+---
+
+#### **4. `logs/` - Logs**
+
+**Tugas:** Menyimpan semua log sistem untuk debugging, monitoring, dan audit.
+
+**Tujuan:** Folder ini menyimpan log dari berbagai komponen sistem dalam format JSONL (JSON Lines) untuk memudahkan parsing dan analysis. Terdiri dari empat file log:
+
+- **`access.log`**: JSONL format dengan fields: `timestamp` (ISO 8601 datetime), `client_ip` (IP address), `method` (HTTP method), `path` (request path), `status` (HTTP status code), `response_time` (duration in ms), `user_agent` (User-Agent string), `request_id` (UUID untuk tracing). Mencatat semua request yang masuk ke API server. Rotasi: 10MB per file, keep 5 archives.
+
+- **`error.log`**: JSONL format dengan fields: `timestamp`, `level` (ERROR/FATAL), `component` (komponen yang error), `message` (error message), `stack_trace` (stack trace jika ada), `context` (request_id, user_id, scan_id). Mencatat semua error yang terjadi di sistem. Rotasi: 10MB per file, keep 5 archives.
+
+- **`scanner_activity.log`**: JSONL format dengan fields: `timestamp`, `scan_id`, `module` (nama module), `event` (started, progress, completed, failed), `details` (JSON dengan detail event), `duration` (duration in ms). Mencatat semua aktivitas scanning: module start, progress updates, completion, errors. Digunakan untuk debugging dan performance analysis. Rotasi: 10MB per file, keep 5 archives.
+
+- **`agent_trace.log`**: JSONL format dengan fields: `timestamp`, `agent_name`, `agent_state` (state transition), `message` (agent activity), `details` (JSON dengan detail), `duration` (duration in ms). Mencatat semua aktivitas agents: state transitions, messages sent/received, task execution, errors. Digunakan untuk debugging agent system dan inter-agent communication. Rotasi: 10MB per file, keep 5 archives.
+
+Implementasi log rotation: setiap file memiliki size threshold 10MB, ketika mencapai threshold, file di-rotate dan di-compress dengan gzip, keep maksimum 5 archives (total 50MB per log type). Logs dapat di-forward ke remote server (ELK stack, Graylog) melalui `utils/logging_system.rs`.
+
+---
+
+#### **5. `exports/` - Ekspor Data**
+
+**Tugas:** Menyimpan data yang diekspor oleh user dalam berbagai format.
+
+**Tujuan:** Folder ini menyimpan hasil export yang diminta oleh user melalui API atau CLI. Setiap format memiliki subfolder sendiri:
+
+- **`json_exports/`**: Ekspor dalam format JSON. File naming: `{scan_id}_export_{timestamp}.json`. Digunakan ketika user meminta ekspor data mentah dalam format JSON.
+
+- **`txt_exports/`**: Ekspor dalam format TXT. File naming: `{scan_id}_export_{timestamp}.txt`. Digunakan ketika user meminta ekspor ringkasan dalam plain text.
+
+- **`docs_exports/`**: Ekspor dalam format DOCX. File naming: `{scan_id}_export_{timestamp}.docx`. Digunakan ketika user meminta ekspor dokumentasi lengkap.
+
+- **`csv_exports/`**: Ekspor dalam format CSV. File naming: `{scan_id}_export_{timestamp}.csv`. Digunakan ketika user meminta ekspor data tabular.
+
+- **`html_exports/`**: Ekspor dalam format HTML. File naming: `{scan_id}_export_{timestamp}.html`. Digunakan ketika user meminta ekspor laporan interaktif.
+
+- **`pdf_exports/`**: Ekspor dalam format PDF. File naming: `{scan_id}_export_{timestamp}.pdf`. Digunakan ketika user meminta ekspor laporan profesional.
+
+Export dilakukan secara async melalui background task, progress ditampilkan di UI (CLI atau WebSocket). User dapat mengunduh file export melalui API endpoint `GET /api/v1/export/{scan_id}/{format}`. File export memiliki TTL 7 hari, setelah itu dihapus oleh script `cleanup_cache.rs` untuk menghemat ruang.
+
+---
+
+#### **6. `temp/` - Temporary Files**
+
+**Tugas:** Menyimpan file sementara yang digunakan selama processing.
+
+**Tujuan:** Folder ini menyimpan file temporary yang digunakan untuk berbagai operasi processing. Contoh penggunaan: intermediate files saat processing data besar (file CSV yang sedang diproses), temporary downloads (file yang di-download dari internet untuk dianalisis), unpacked archives (file yang di-unzip untuk ekstraksi konten), image processing (screenshot yang di-generate untuk report, kemudian disisipkan ke PDF/HTML). File di sini bersifat sementara dan memiliki lifecycle pendek (biasanya < 24 jam). Dibersihkan secara periodik oleh script `scripts/cleanup_cache.rs` yang menghapus file yang lebih tua dari 24 jam. Folder ini tidak di-version control dan di-ignore oleh `.gitignore`. Lock file digunakan untuk mencegah conflict jika multiple processes mencoba menggunakan file yang sama.
+
+---
+
+**shared folder explanation:**
+
+---
+
+## 📂 **`shared/` - SHARED CONTRACTS & TYPES**
+
+---
+
+### 📂 **`shared/contracts/` - SERVICE CONTRACTS**
+
+#### **1. `scanner_contract.rs`**
+
+**Task:** Define formal contracts for all scanner modules to ensure implementation consistency.
+
+**Purpose:** This file defines the `ScannerContract` trait with method signatures that all scanners must implement: `fn scan_website(&self, url: Url) -> Result<ScanResult, ScannerError>`, `fn scan_with_profile(&self, url: Url, profile: Profile) -> Result<ScanResult, ScannerError>`, `fn cancel_scan(&self, scan_id: Uuid) -> Result<(), ScannerError>`, `fn get_scan_status(&self, scan_id: Uuid) -> Result<ScanStatus, ScannerError>`. Defines **preconditions** with `debug_assert!` to validate input before execution: `debug_assert!(!url.as_str().is_empty())`, `debug_assert!(url.scheme() == "http" || url.scheme() == "https")`, `debug_assert!(profile.threads > 0 && profile.threads <= 200)`. Defines **postconditions**: `assert!(result.start_time <= result.end_time)`, `assert!(result.modules_results.len() > 0)`, `assert!(result.status != ScanStatus::Unknown)`. Defines **invariants**: `scan_id must be unique`, `start_time < end_time`, `progress between 0-100`. Defines error types: `ScannerError::InvalidUrl`, `ScannerError::DomainNotFound`, `ScannerError::ConnectionTimeout`, `ScannerError::ScanCancelled`, `ScannerError::RateLimited`. Adds documentation attributes `#[doc = "..."]` for each method.
+
+---
+
+#### **2. `analyzer_contract.rs`**
+
+**Task:** Define formal contracts for all analyzer components.
+
+**Purpose:** This file defines the `AnalyzerContract` trait with methods: `fn analyze_scan_data(&self, data: ScanResult) -> Result<AnalysisResult, AnalysisError>`, `fn cross_reference_analysis(&self, result: AnalysisResult) -> Result<CrossReferenceResult, AnalysisError>`, `fn calculate_risk(&self, result: AnalysisResult) -> Result<RiskScore, AnalysisError>`. Defines **preconditions**: `debug_assert!(!data.url.is_empty())`, `debug_assert!(data.modules_results.len() > 0)`, `debug_assert!(data.status == ScanStatus::Completed)`. Defines **performance contract**: `const ANALYSIS_TIMEOUT_MINUTES: u64 = 5` - analysis must complete within 5 minutes for standard website (100 pages). If exceeded, considered timeout. Defines **error conditions**: `AnalysisError::IncompleteData` if data incomplete, `AnalysisError::ModelLoadFailed` if AI model fails to load, `AnalysisError::CorrelationFailed` if cross-reference fails, `AnalysisError::TimeoutExceeded` if exceeds 5 minutes. Defines **output guarantees**: `result.findings.len() > 0` (at least one finding), `result.risk_score >= 0.0 && result.risk_score <= 10.0` (CVSS score range).
+
+---
+
+#### **3. `orchestrator_contract.go`**
+
+**Task:** Define formal contracts for orchestrator workflow management.
+
+**Purpose:** This file defines the `OrchestratorContract` interface with methods: `StartWorkflow(req WorkflowRequest) (WorkflowID, error)`, `GetWorkflowStatus(id WorkflowID) (WorkflowStatus, error)`, `PauseWorkflow(id WorkflowID) error`, `ResumeWorkflow(id WorkflowID) error`, `CancelWorkflow(id WorkflowID) error`. Defines **state machine contract** with constant state definitions: `StateIdle = "IDLE"`, `StatePreparing = "PREPARING"`, `StateScanning = "SCANNING"`, `StateAnalyzing = "ANALYZING"`, `StateReporting = "REPORTING"`, `StateComplete = "COMPLETE"`, `StateError = "ERROR"`. Defines **valid state transitions** with `map[State][]State` for validation: `IDLE -> PREPARING`, `PREPARING -> SCANNING`, `SCANNING -> ANALYZING`, `ANALYZING -> REPORTING`, `REPORTING -> COMPLETE`, `ANY -> ERROR`, `ERROR -> IDLE`. Defines **workflow guarantees**: workflow must be idempotent (can be re-run without side effects), workflow must be transactional (all-or-nothing), workflow must be durable (state stored in persistent storage). Defines error types: `ErrWorkflowNotFound`, `ErrWorkflowAlreadyRunning`, `ErrWorkflowPaused`, `ErrWorkflowCancelled`, `ErrInvalidTransition`.
+
+---
+
+#### **4. `storage_contract.rs`**
+
+**Task:** Define formal contracts for all storage operations.
+
+**Purpose:** This file defines the `StorageContract` trait with methods: `fn store_data(&self, key: StorageKey, data: StorageValue) -> Result<(), StorageError>`, `fn retrieve_data(&self, key: StorageKey) -> Result<Option<StorageValue>, StorageError>`, `fn delete_data(&self, key: StorageKey) -> Result<(), StorageError>`, `fn query_data(&self, query: DataQuery) -> Result<Vec<StorageValue>, StorageError>`. Defines **consistency guarantees**: write operations must be strongly consistent (immediately visible to all readers), read operations can be eventually consistent (cached) with `ConsistencyLevel` enum: `StrongConsistency`, `EventualConsistency`, `ReadAfterWriteConsistency`. Defines **durability guarantee**: `async fn durability_check() -> Result<bool>` that verifies data persists across system restarts. Defines **error types**: `StorageError::KeyNotFound`, `StorageError::KeyAlreadyExists`, `StorageError::ConnectionFailed`, `StorageError::IntegrityError`, `StorageError::SerializationError`. Defines **performance SLAs**: store_data < 100ms, retrieve_data < 50ms, delete_data < 100ms, query_data < 500ms for 1000 records.
+
+---
+
+#### **5. `agent_contract.rs`**
+
+**Task:** Define formal contracts for all agents in the system.
+
+**Purpose:** This file defines the `AgentContract` trait with methods: `fn init(&mut self) -> Result<(), AgentError>`, `fn run(&mut self) -> Result<(), AgentError>`, `fn pause(&mut self) -> Result<(), AgentError>`, `fn resume(&mut self) -> Result<(), AgentError>`, `fn shutdown(&mut self) -> Result<(), AgentError>`, `fn get_state(&self) -> AgentState`, `fn send_message(&self, msg: AgentMessage) -> Result<(), AgentError>`. Defines **lifecycle validation** with method `fn validate_transition(from: AgentState, to: AgentState) -> bool` and state transition table: `Uninitialized -> Initialized`, `Initialized -> Running`, `Running -> Paused`, `Paused -> Running`, `Running -> ShuttingDown`, `Paused -> ShuttingDown`, `ShuttingDown -> Shutdown`. Defines **heartbeat contract**: `const HEARTBEAT_INTERVAL_SECONDS: u64 = 30`, `fn send_heartbeat(&self) -> Result<()>` - agent must send heartbeat every 30 seconds or supervisor will consider it dead and restart. Defines **error types**: `AgentError::AlreadyRunning`, `AgentError::AlreadyStopped`, `AgentError::HeartbeatMissed`, `AgentError::StateTransitionInvalid`, `AgentError::MessageDeliveryFailed`.
+
+---
+
+#### **6. `model_contract.py`**
+
+**Task:** Define formal contracts for all AI/ML models.
+
+**Purpose:** This file defines the abstract base class `ModelContract` with methods: `@abstractmethod def load_model(self, config: ModelConfig) -> Model`, `@abstractmethod def predict(self, features: FeatureVector) -> PredictionResult`, `@abstractmethod def explain(self, prediction: PredictionResult) -> Explanation`, `@abstractmethod def train(self, data: TrainingData) -> TrainingResult`, `@abstractmethod def evaluate(self, data: TrainingData) -> EvaluationMetrics`. Defines **input validation decorator**: `@validate_input` that checks feature vector length and data types (all values must be float, no NaN, length matches loaded model). Defines **output schema** with dataclass `PredictionResult` that must have fields: `label: str` (predicted label), `confidence: float` (0-1), `probabilities: Dict[str, float]` (label -> probability). Defines **performance requirements**: predict < 100ms for inference, train < 1 hour for 10,000 sample dataset, evaluate < 5 minutes for 2,000 sample test dataset. Defines error types: `ModelError::LoadFailed`, `ModelError::InvalidInput`, `ModelError::PredictionFailed`, `ModelError::TrainingFailed`.
+
+---
+
+#### **7. `module_contract.rs`**
+
+**Task:** Define formal contracts for all functional modules.
+
+**Purpose:** This file defines the `ModuleContract` trait with methods: `fn execute(&self, input: ModuleInput) -> Result<ModuleOutput, ModuleError>`, `fn validate_config(&self, config: Config) -> Result<ValidationResult, ModuleError>`, `fn get_capabilities(&self) -> Capabilities`, `fn get_version(&self) -> Version`. Defines **capability flags** with bitmask: `CAP_NETWORK_SCAN = 0x01`, `CAP_CONTENT_ANALYSIS = 0x02`, `CAP_SECURITY_CHECK = 0x04`, `CAP_INTELLIGENCE = 0x08`, `CAP_INFRASTRUCTURE = 0x10`. Defines **timeout behavior**: `fn execute_with_timeout(&self, input: ModuleInput, timeout: Duration) -> Result<ModuleOutput>` - every module must support timeout and cancellation. Defines **error handling contract**: every error must implement `ModuleError` trait with methods: `code() -> String` (error code), `message() -> String` (human-readable message), `details() -> Option<serde_json::Value>` (optional detail). Defines **versioning**: `const API_VERSION: &str = "v1.0"` - module must be compatible with API version.
+
+---
+
+#### **8. `integration_contract.rs`**
+
+**Task:** Define formal contracts for all third-party integrations.
+
+**Purpose:** This file defines the `IntegrationContract` trait with methods: `fn connect(&self, config: IntegrationConfig) -> Result<Connection, IntegrationError>`, `fn query(&self, request: Request) -> Result<Response, IntegrationError>`, `fn validate_credentials(&self, creds: Credentials) -> Result<(), IntegrationError>`, `fn disconnect(&self) -> Result<(), IntegrationError>`. Defines **retry policy** with struct `RetryPolicy { max_attempts: u32, initial_backoff: Duration, max_backoff: Duration, multiplier: f32 }` - default: max_attempts=3, initial_backoff=1s, max_backoff=30s, multiplier=2. Defines **rate limiting contract**: `fn check_rate_limit(&self) -> Result<bool>` that returns false if rate limit exceeded (based on tier: free = 1 req/s, paid = 5 req/s). Defines **error types**: `IntegrationError::AuthenticationFailed`, `IntegrationError::RateLimitExceeded`, `IntegrationError::Timeout`, `IntegrationError::InvalidResponse`, `IntegrationError::ServiceUnavailable`. Defines **connection lifecycle**: connect -> (query)* -> disconnect, connection must be reconnected if idle > 5 minutes.
+
+---
+
+#### **9. `api_contract.rs`**
+
+**Task:** Define formal contracts for all API endpoints.
+
+**Purpose:** This file defines the `ApiContract` trait with methods: `fn handle_request(&self, req: ApiRequest) -> ApiResponse`, `fn authenticate(&self, req: ApiRequest) -> Result<AuthResult, ApiError>`, `fn authorize(&self, req: ApiRequest, permission: Permission) -> Result<AuthResult, ApiError>`. Defines **API versioning** with enum `ApiVersion { V1, V2, V3 }` - API must support versioning for backward compatibility. Defines **response format** with struct `ApiResponse<T>`: `status: u16` (HTTP status code), `data: Option<T>` (response data), `error: Option<ApiError>` (error details), `timestamp: DateTime<Utc>` (response timestamp), `request_id: String` (unique request ID for tracing). Defines **error codes**: `AUTH_001` (Invalid token), `AUTH_002` (Token expired), `AUTH_003` (Permission denied), `API_001` (Invalid request), `API_002` (Rate limit exceeded), `API_003` (Internal server error), `API_004` (Resource not found). Defines **API guarantees**: all responses must have `request_id` for tracing, all errors must have `code` and `message`, response time must be < 1s for 95% of requests.
+
+---
+
+### 📂 **`shared/types/` - SHARED DATA TYPES**
+
+#### **1. `common_types.rs`**
+
+**Task:** Define basic data types used throughout the system.
+
+**Purpose:** This file defines fundamental types used globally. `Url` with wrapper struct `#[derive(Debug, Clone, Serialize, Deserialize)]` and custom validation in `new()` method: if scheme is not http/https, returns `InvalidUrl` error. `Domain` with validation `is_ascii() && !is_empty() && !contains(' ')` and `ToAscii` for punycode. `IpAddress` with enum `#[derive(Debug, Clone, Copy, PartialEq, Eq)]` with variants `V4(Ipv4Addr)` and `V6(Ipv6Addr)`. `Timestamp` with `DateTime<Utc>` and `FromStr` impl for ISO 8601 parsing. `Duration` with `std::time::Duration` and methods `to_millis()`, `to_seconds()`. `ScanId` and `UserId` with `Uuid` wrapper. `Severity` enum `#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]` with variants `Critical`, `High`, `Medium`, `Low`, `Info` and `Display` impl for string representation. `Status` enum with variants `Active`, `Completed`, `Failed`, `Cancelled`, `Pending` and `From<&str>` impl for parsing. `Confidence` enum `#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]` with variants `High`, `Medium`, `Low`. `Priority` enum with variants `P0`, `P1`, `P2`, `P3`, `P4` and `rank()` method returning u8 (P0=0, P4=4). Implements `Serialize` and `Deserialize` for all types using `serde`.
+
+---
+
+#### **2. `network_types.rs`**
+
+**Task:** Define data types for all network operations.
+
+**Purpose:** This file defines data structures for network reconnaissance. `DnsRecord` with fields: `record_type: DnsRecordType` (enum A, AAAA, CNAME, MX, TXT, NS, SOA, SRV), `name: String`, `value: String`, `ttl: u32`, `priority: Option<u16>` (for MX and SRV). `PortScanResult` with fields: `port: u16`, `protocol: Protocol` (TCP, UDP), `state: PortState` (Open, Closed, Filtered), `service: Option<String>`, `version: Option<String>` (service version). `WhoisData` with fields: `registrar: String`, `creation_date: DateTime<Utc>`, `expiry_date: DateTime<Utc>`, `updated_date: Option<DateTime<Utc>>`, `nameservers: Vec<String>`, `registrant: Option<Contact>`, `tech_contact: Option<Contact>`, `admin_contact: Option<Contact>`, `status: Vec<String>`. `TracerouteHop` with fields: `hop_number: u32`, `ip: IpAddr`, `hostname: Option<String>`, `rtt_ms: Vec<u64>` (per probe, typically 3 probes), `location: Option<GeoLocation>` (country, city, lat, lon). `SslCertificate` with fields: `subject: String`, `issuer: String`, `valid_from: DateTime<Utc>`, `valid_to: DateTime<Utc>`, `san: Vec<String>` (Subject Alternative Names), `cipher_suites: Vec<CipherSuite>`, `key_type: KeyType` (RSA, ECDSA), `key_size: u16`, `signature_algorithm: String`. Implements `Display` for all types for logging.
+
+---
+
+#### **3. `security_types.rs`**
+
+**Task:** Define data types for security analysis.
+
+**Purpose:** This file defines data structures for security assessment. `HeaderAnalysis` with fields: `header_name: String`, `value: String`, `score: u8` (0-10), `issues: Vec<String>`, `recommendations: Vec<String>`, `is_present: bool`, `is_valid: bool`. `CookieAnalysis` with fields: `name: String`, `secure: bool`, `httponly: bool`, `samesite: SameSite` (Lax, Strict, None), `domain: Option<String>`, `path: Option<String>`, `expires: Option<DateTime<Utc>>`, `is_session: bool` (no expiration). `Vulnerability` with fields: `cve_id: String`, `title: String`, `description: String`, `severity: Severity`, `cvss_score: f32`, `cvss_vector: String`, `affected_software: Vec<SoftwareVersion>` (name, version, version_ranges), `references: Vec<String>`, `remediation: Option<String>`. `XssFinding` with fields: `type: XssType` (Reflected, Stored, DOM), `location: String` (URL or form), `payload: String`, `context: XssContext` (HTML, Attribute, JavaScript), `confidence: Confidence`. `SqlFinding` with fields: `type: SqlType` (Boolean, Time, Error, Union), `parameter: String`, `payload: String`, `error_message: Option<String>`, `confidence: Confidence`. `CsrfFinding` with fields: `form_action: String`, `method: String`, `has_token: bool`, `token_valid: bool`, `samesite_status: SameSite`, `vulnerable: bool`. Implements `to_json()` for all types using `serde_json`.
+
+---
+
+#### **4. `content_types.rs`**
+
+**Task:** Define data types for website content.
+
+**Purpose:** This file defines data structures for content analysis. `ParsedHtml` with fields: `title: Option<String>`, `headings: Vec<Heading>` (level, text, id), `forms: Vec<Form>` (action, method, inputs, id, name), `scripts: Vec<Script>` (src, type, content, async, defer), `images: Vec<Image>` (src, alt, title, width, height), `links: Vec<Link>` (href, rel, target, text). `JsAnalysis` with fields: `framework_detected: Vec<Framework>` (name, version), `api_keys: Vec<ApiKey>` (key, source, line, column), `dangerous_functions: Vec<DangerousFunction>` (name, line, column, context), `library_versions: Vec<LibraryVersion>` (name, version), `obfuscation_detected: bool`, `total_functions: usize`, `total_lines: usize`. `CssInfo` with fields: `total_rules: usize`, `total_selectors: usize`, `frameworks: Vec<Framework>`, `unused_percentage: f32`, `variables: Vec<CssVariable>` (name, value), `imports: Vec<String>`. `MetaData` with fields: `og_tags: HashMap<String, String>`, `twitter_cards: HashMap<String, String>`, `canonical_url: Option<Url>`, `robots: String`, `sitemap: Option<Url>`, `rss_feed: Option<Url>`, `description: Option<String>`, `keywords: Vec<String>`. `LinkGraph` with fields: `internal_links: Vec<Link>`, `external_links: Vec<Link>`, `broken_links: Vec<BrokenLink>` (url, status_code, error), `redirect_chains: Vec<RedirectChain>` (urls, status_codes). Implements `From<&str>` for parsing.
+
+---
+
+#### **5. `infrastructure_types.rs`**
+
+**Task:** Define data types for infrastructure and hosting.
+
+**Purpose:** This file defines data structures for infrastructure intelligence. `ServerInfo` with fields: `server_type: ServerType` (Apache, Nginx, IIS, Lighttpd, Caddy, Unknown), `version: Option<String>`, `os: Option<String>` (Linux, Windows, macOS), `powered_by: Option<String>` (X-Powered-By header), `framework: Option<String>` (backend framework), `platform: Option<String>` (PHP, .NET, Node.js, Python). `CloudProvider` with fields: `provider: CloudProviderType` (AWS, GCP, Azure, DO, Heroku, Unknown), `region: Option<String>` (us-east-1, eu-west-1, etc), `services: Vec<CloudService>` (EC2, S3, CloudFront, GCE, etc), `confidence: f32`. `CdnInfo` with fields: `provider: CdnProvider` (Cloudflare, Akamai, Fastly, CloudFront, GCP, Azure, Unknown), `edge_locations: Vec<String>` (data center codes), `cache_status: CacheStatus` (Hit, Miss, Bypass), `is_cdn: bool`. `LoadBalancerInfo` with fields: `type: LBType` (Hardware, Software, Cloud), `algorithm: LBAlgorithm` (RoundRobin, LeastConn, IPHash, Random), `backend_count: Option<usize>`, `sticky_session: bool`, `detected_via: DetectionMethod` (Header, Cookie, TTL, Pattern). `HostingInfo` with fields: `provider: String`, `isp: String`, `asn: u32`, `country: String`, `city: String`, `latitude: f64`, `longitude: f64`, `timezone: String`, `data_center: Option<String>`. Implements `Display` for logging.
+
+---
+
+#### **6. `intelligence_types.rs`**
+
+**Task:** Define data types for threat intelligence.
+
+**Purpose:** This file defines data structures for threat intelligence. `ThreatData` with fields: `indicators: Vec<Indicator>` (type, value, first_seen, last_seen), `families: Vec<String>` (malware families), `severity: Severity`, `timestamp: DateTime<Utc>`, `sources: Vec<ThreatSource>` (name, confidence, url). `ReputationScore` with fields: `overall_score: u8` (0-100), `categories: Vec<ReputationCategory>` (Malicious, Phishing, Suspicious, Benign, Unknown), `vendors: Vec<VendorResult>` (name, verdict, detection_rate), `total_vendors: usize`, `detections: usize`. `BlacklistStatus` with fields: `listed_in: Vec<BlacklistSource>` (Spamhaus, SURBL, URIBL, DNSBL, SORBS), `categories: Vec<BlacklistCategory>` (Spam, Malware, Phishing, Exploit, Abuse), `reasons: Vec<String>`. `HarvestedEmail` with fields: `email: String`, `category: EmailCategory` (Role, Personal, Generic), `source: EmailSource` (HTML, JS, Mailto, File, Comment), `validation_status: ValidationStatus` (Valid, Invalid, Disposable, RoleBased). Implements `From<serde_json::Value>` for parsing from API responses.
+
+---
+
+#### **7. `agent_types.rs`**
+
+**Task:** Define data types for agent system.
+
+**Purpose:** This file defines data structures for agent management. `AgentState` enum with variants: `Uninitialized`, `Initialized`, `Running`, `Paused`, `ShuttingDown`, `Shutdown`. `AgentMessage` with fields: `sender_id: String`, `recipient_id: String`, `message_type: MessageType` (Heartbeat, StatusRequest, StatusResponse, TaskAssignment, TaskComplete, ErrorReport, LogEntry), `payload: Vec<u8>`, `timestamp: DateTime<Utc>`. `WorkflowRequest` with fields: `scan_target: Url`, `profile: Profile`, `options: WorkflowOptions` (timeout, max_pages, follow_redirects, respect_robots). `WorkflowStatus` with fields: `id: WorkflowID` (UUID), `state: WorkflowState` (IDLE, PREPARING, SCANNING, ANALYZING, REPORTING, COMPLETE, ERROR), `progress: f32`, `start_time: DateTime<Utc>`, `end_time: Option<DateTime<Utc>>`, `error: Option<String>`, `current_step: String`. Implements `Serialize` and `Deserialize` for all types.
+
+---
+
+#### **8. `model_types.py`**
+
+**Task:** Define data types for AI/ML models.
+
+**Purpose:** This file defines dataclasses for model management. `FeatureVector` with `values: List[float]` and `validate()` method to check length and NaN values. `PredictionResult` with fields: `label: str`, `confidence: float` (0-1), `probabilities: Dict[str, float]` (label -> probability). `TrainingData` with fields: `features: List[FeatureVector]`, `labels: List[str]`, `weights: Optional[List[float]]`, `validate()` to check consistency (all features same length). `ModelConfig` with fields: `model_type: str` (RandomForest, SVM, GradientBoosting), `hyperparameters: Dict[str, Any]`, `path: Optional[str]`, `version: str`. `EvaluationMetrics` with fields: `accuracy: float`, `precision: float`, `recall: float`, `f1: float`, `auc_roc: float`, `confusion_matrix: List[List[int]]`. Implements `__post_init__` for validation.
+
+---
+
+#### **9. `storage_types.rs`**
+
+**Task:** Define data types for storage operations.
+
+**Purpose:** This file defines data structures for storage management. `StorageKey` with fields: `namespace: String` (scan, report, config), `id: String`, `to_string()` method for serialization. `StorageValue` with fields: `data: Vec<u8>`, `metadata: ValueMetadata` (content_type, size, created_at, updated_at, version). `DataQuery` with fields: `filters: Vec<QueryFilter>` (field, operator, value), `sort: Option<SortOrder>` (field, direction), `limit: Option<u32>`, `offset: Option<u32>`. `VersionMetadata` with fields: `version: u32`, `timestamp: DateTime<Utc>`, `author: String`, `message: String`. `BackupInfo` with fields: `backup_id: String`, `size: u64`, `created_at: DateTime<Utc>`, `location: BackupLocation` (Local, S3, GCS, Azure), `status: BackupStatus` (Pending, Running, Complete, Failed). Implements `Serialize` and `Deserialize`.
+
+---
+
+#### **10. `report_types.rs`**
+
+**Task:** Define data types for reporting.
+
+**Purpose:** This file defines data structures for report generation. `ReportData` with fields: `title: String`, `summary: Option<String>`, `findings: Vec<Finding>`, `recommendations: Vec<Recommendation>`, `metadata: ReportMetadata` (created_at, generated_by, version, language). `ExecutiveSummary` with fields: `overview: String`, `key_findings: Vec<KeyFinding>` (title, severity, impact), `risk_summary: RiskSummary` (total, critical, high, medium, low), `actions: Vec<ActionItem>` (priority, description, effort). `TechnicalDeepDive` with fields: `detailed_findings: Vec<DetailedFinding>` (description, evidence, poc, impact, remediation), `root_cause: Option<String>`, `affected_systems: Vec<String>`. `VulnerabilityTracker` with fields: `tracked_vulnerabilities: Vec<TrackedVulnerability>` (id, status, opened_at, closed_at, updated_at), `status_history: Vec<StatusChange>`, `sla_compliance: bool`. `TimelineEvent` with fields: `timestamp: DateTime<Utc>`, `event_type: TimelineEventType` (ScanStart, ScanComplete, FindingFound, StatusChange, AlertTriggered), `description: String`, `details: Option<serde_json::Value>`. Implements `ToHtml` and `ToJson`.
+
+---
+
+#### **11. `error_types.rs`**
+
+**Task:** Define all error types used in the system.
+
+**Purpose:** This file defines error types for all components. `ScannerError` enum with variants: `Timeout`, `ConnectionFailed(String)`, `ParseError(String)`, `InvalidTarget(String)`, `RateLimited`, `ScanCancelled`, `InternalError(String)`. `AnalyzerError` enum with variants: `InvalidData(String)`, `IncompleteData`, `ModelError(String)`, `CorrelationFailed(String)`, `TimeoutExceeded`. `StorageError` enum with variants: `NotFound`, `AlreadyExists`, `ConnectionFailed`, `IntegrityError(String)`, `SerializationError(String)`. `AgentError` enum with variants: `AlreadyRunning`, `AlreadyStopped`, `HeartbeatMissed`, `StateTransitionInvalid(String)`, `MessageDeliveryFailed`. `ApiError` enum with variants: `AuthenticationFailed`, `AuthorizationFailed`, `RateLimitExceeded`, `InvalidRequest(String)`, `InternalError(String)`. Each error implements `Display` and `Error` traits, and has `code()` method returning error code string (E1001-E9999) and `severity()` method returning `Severity`. Implements `From` for conversion between error types.
+
+---
+
+#### **12. `config_types.rs`**
+
+**Task:** Define data types for system configuration.
+
+**Purpose:** This file defines data structures for configuration management. `AppConfig` with fields: `env: Environment` (Development, Testing, Production), `debug: bool`, `log_level: LogLevel` (Debug, Info, Warn, Error, Fatal). `DatabaseConfig` with fields: `url: String`, `pool_size: usize` (default 20), `timeout: Duration` (default 30s), `max_lifetime: Duration` (default 10m). `ScanningConfig` with fields: `profiles: HashMap<String, Profile>`, `default_profile: String`, `max_threads: usize`, `default_timeout: Duration`. `ApiConfig` with fields: `host: String` (default "0.0.0.0"), `port: u16` (default 8080), `cors_origins: Vec<String>`, `rate_limit: RateLimitConfig` (requests, window). `IntegrationConfig` with fields: `service_name: String`, `api_key: String`, `endpoint: Url`, `timeout: Duration` (default 30s), `retry_policy: RetryPolicy`. Implements `FromEnv` for loading from environment variables with prefix `IWS_`. Implements `Validate` for configuration validation.
+
+---
+
+### 📂 **`shared/interfaces/` - INTERFACE DEFINITIONS**
+
+#### **1. `scanner_interface.rs`**
+
+**Task:** Define the Scanner trait as the base abstraction for all scanners.
+
+**Purpose:** This file defines the `Scanner` trait with methods `scan(Url) -> ScanResult`, `scan_with_profile(Url, Profile) -> ScanResult`, `cancel(Uuid) -> Result`, `status(Uuid) -> ScanStatus`. Uses `async_trait` for async methods with `Send + Sync` bounds for thread safety. Defines associated type `Error = ScannerError`. Includes `#[must_use]` attribute for all methods returning Result (warns if result is ignored). Provides default method `scan_with_retry(url: Url, profile: Profile, max_retries: u8) -> ScanResult` that calls `scan_with_profile()` and retries on failure with exponential backoff. Includes `fn get_capabilities()` to get scanner capabilities.
+
+---
+
+#### **2. `analyzer_interface.rs`**
+
+**Task:** Define the Analyzer trait for all analyzer components.
+
+**Purpose:** This file defines the `Analyzer` trait with methods `analyze(ScanResult) -> AnalysisResult`, `cross_reference(AnalysisResult) -> CrossReferenceResult`, `calculate_risk(AnalysisResult) -> RiskScore`. Uses `async_trait` with `Send + Sync` bounds. Defines associated type `Error = AnalyzerError`. Adds method `get_analysis_progress() -> f32` for streaming progress (0-100) during analysis. Adds method `get_analysis_stages() -> Vec<AnalysisStage>` to get list of stages and their status. Provides `default` implementation for optional methods.
+
+---
+
+#### **3. `orchestrator_interface.go`**
+
+**Task:** Define the Orchestrator interface for workflow management.
+
+**Purpose:** This file defines the `Orchestrator` interface with methods `StartWorkflow(WorkflowRequest) (WorkflowID, error)`, `GetWorkflowStatus(WorkflowID) (WorkflowStatus, error)`, `PauseWorkflow(WorkflowID) error`, `ResumeWorkflow(WorkflowID) error`, `CancelWorkflow(WorkflowID) error`. Adds method `On(event string, callback func(WorkflowStatus))` for event registration (allows subscribers to listen to events). Implements `RegisterWorkflowCallback` with map of callbacks. Adds method `GetWorkflowHistory(WorkflowID) ([]WorkflowStatus, error)` to get status change history. Adds method `ListActiveWorkflows() ([]WorkflowID, error)` to get all active workflows.
+
+---
+
+#### **4. `storage_interface.rs`**
+
+**Task:** Define the Storage trait for data persistence.
+
+**Purpose:** This file defines the `Storage` trait with methods `store(StorageKey, StorageValue) -> Result`, `retrieve(StorageKey) -> Option<StorageValue>`, `delete(StorageKey) -> Result`, `query(DataQuery) -> Vec<StorageValue>`. Uses `async_trait` with `Send + Sync` bounds. Additional methods: `backup(BackupRequest) -> Result<BackupInfo>`, `restore(RestoreRequest) -> Result`, `health_check() -> bool`. Adds method `get_metrics()` to get storage metrics (size, entries, qps). Adds method `compact()` to perform compaction/optimization.
+
+---
+
+#### **5. `agent_interface.rs`**
+
+**Task:** Define the Agent trait for all autonomous agents.
+
+**Purpose:** This file defines the `Agent` trait with methods `init() -> Result`, `run() -> Result`, `pause() -> Result`, `resume() -> Result`, `shutdown() -> Result`, `get_state() -> AgentState`, `send_message(AgentMessage) -> Result`. Uses `async_trait` with `Send + Sync` bounds. Additional methods: `get_id() -> String` (unique agent ID), `get_type() -> AgentType` (Reconnaissance, Analysis, Reporting, Monitoring, ModelIntegration), `on_event(callback: fn(AgentEvent))` for event handling. Provides `default` implementation for optional methods.
+
+---
+
+#### **6. `module_interface.rs`**
+
+**Task:** Define the Module trait for all functional modules.
+
+**Purpose:** This file defines the `Module` trait with methods `execute(ModuleInput) -> ModuleOutput`, `validate_config(Config) -> ValidationResult`, `get_capabilities() -> Capabilities`, `get_version() -> Version`. Uses `async_trait` with `Send + Sync` bounds. Additional methods: `get_dependencies() -> Vec<String>` (dependencies on other modules), `get_requirements() -> Vec<Requirement>` (system requirements), `get_config_schema() -> JsonSchema` (schema for module configuration). Provides `default` implementation for optional methods.
+
+---
+
+#### **7. `integration_interface.rs`**
+
+**Task:** Define the Integration trait for third-party integrations.
+
+**Purpose:** This file defines the `Integration` trait with methods `connect(IntegrationConfig) -> Connection`, `query(Request) -> Response`, `validate_credentials(Credentials) -> Result`, `disconnect() -> Result`. Uses `async_trait` with `Send + Sync` bounds. Additional methods: `get_rate_limit_status() -> RateLimitStatus` (remaining, reset), `get_health_status() -> HealthStatus` (healthy, degraded, unhealthy), `get_capabilities() -> IntegrationCapabilities` (supported features). Provides `default` implementation for optional methods.
+
+---
+
+#### **8. `reporter_interface.rs`**
+
+**Task:** Define the Reporter trait for report generation.
+
+**Purpose:** This file defines the `Reporter` trait with methods `generate(ReportData) -> Vec<u8>`, `export(ReportData, Format) -> Vec<u8>`, `validate_template(String) -> bool`. Uses `async_trait` with `Send + Sync` bounds. Additional methods: `get_supported_formats() -> Vec<Format>` (JSON, TXT, DOCS, CSV, HTML, PDF), `set_template(String) -> Result`, `get_template() -> String` (get current template), `get_template_variables() -> Vec<String>` (variables available in template). Provides `default` implementation for optional methods.
+
+---
+
+### 📂 **`shared/proto/` - PROTOCOL BUFFERS**
+
+#### **1. `agent_messages.proto`**
+
+**Task:** Define communication protocol for inter-agent messaging.
+
+**Purpose:** This file defines protobuf schema for agent communication. `message AgentMessage { string sender_id = 1; string recipient_id = 2; string message_type = 3; bytes payload = 4; uint64 timestamp = 5; }`. Defines enum `MessageType`: `HEARTBEAT = 0`, `STATUS_REQUEST = 1`, `STATUS_RESPONSE = 2`, `TASK_ASSIGNMENT = 3`, `TASK_COMPLETE = 4`, `ERROR_REPORT = 5`, `LOG_ENTRY = 6`. Adds `oneof` for type-specific payloads: `oneof message_payload { HeartbeatPayload heartbeat = 6; StatusResponse status = 7; TaskAssignment task = 8; TaskComplete complete = 9; ErrorReport error = 10; LogEntry log = 11; }`. Defines service `AgentService { rpc SendMessage(AgentMessage) returns (Ack); rpc StreamMessages(stream AgentMessage) returns (stream AgentMessage); }` for streaming communication.
+
+---
+
+#### **2. `scan_events.proto`**
+
+**Task:** Define communication protocol for scan events.
+
+**Purpose:** This file defines protobuf schema for scan events. `message ScanEvent { string scan_id = 1; string event_type = 2; bytes data = 3; uint64 timestamp = 4; }`. Defines enum `EventType`: `SCAN_STARTED = 0`, `SCAN_PROGRESS = 1`, `SCAN_PAUSED = 2`, `SCAN_RESUMED = 3`, `MODULE_STARTED = 4`, `MODULE_COMPLETED = 5`, `SCAN_COMPLETED = 6`, `SCAN_FAILED = 7`. Adds type-specific payloads: `message ScanProgress { float progress = 1; string status = 2; uint32 pages_done = 3; uint32 pages_total = 4; }`, `message ModuleEvent { string module_name = 1; string status = 2; uint32 duration = 3; }`. Defines service `ScanEventService { rpc SubscribeEvents(SubscribeRequest) returns (stream ScanEvent); rpc EmitEvent(ScanEvent) returns (Ack); }`.
+
+---
+
+#### **3. `analysis_results.proto`**
+
+**Task:** Define communication protocol for analysis results.
+
+**Purpose:** This file defines protobuf schema for analysis results. `message AnalysisResult { string scan_id = 1; repeated Finding findings = 2; RiskScore risk_score = 3; string summary = 4; uint64 timestamp = 5; }`. Defines `Finding` with `oneof` for finding types: `message Finding { string id = 1; string type = 2; Severity severity = 3; string description = 4; oneof detail { SecurityFinding security = 5; ContentFinding content = 6; InfrastructureFinding infrastructure = 7; IntelligenceFinding intelligence = 8; } }`. Defines `RiskScore`: `float base_score = 1; float temporal_score = 2; float environmental_score = 3; float business_score = 4; string priority = 5`. Defines `Severity` enum: `CRITICAL = 0`, `HIGH = 1`, `MEDIUM = 2`, `LOW = 3`, `INFO = 4`.
+
+---
+
+#### **4. `report_data.proto`**
+
+**Task:** Define communication protocol for report data.
+
+**Purpose:** This file defines protobuf schema for report data. `message ReportData { string report_id = 1; string scan_id = 2; ExecutiveSummary summary = 3; TechnicalDeepDive details = 4; VulnerabilityTracker tracker = 5; Timeline timeline = 6; }`. Defines `ExecutiveSummary`: `string overview = 1; repeated KeyFinding findings = 2; RiskSummary risk = 3; repeated ActionItem actions = 4`. `TechnicalDeepDive`: `repeated DetailedFinding findings = 1; optional string root_cause = 2; repeated string affected_systems = 3`. `VulnerabilityTracker`: `repeated TrackedVulnerability vulnerabilities = 1; repeated StatusChange history = 2; bool sla_compliance = 3`. `Timeline`: `repeated TimelineEvent events = 1`. Defines `KeyFinding`: `string title = 1; Severity severity = 2; string impact = 3`.
+
+---
+
+#### **5. `api_payloads.proto`**
+
+**Task:** Define communication protocol for API payloads.
+
+**Purpose:** This file defines protobuf schema for API communication. `message ApiRequest { string endpoint = 1; string method = 2; map<string, string> headers = 3; bytes body = 4; }`. `message ApiResponse { int32 status_code = 1; map<string, string> headers = 2; bytes body = 3; string error = 4; }`. Defines payloads: `message ScanRequest { string url = 1; string profile = 2; map<string, string> options = 3; }`. `message ScanResponse { string scan_id = 1; string status = 2; string message = 3; }`. `message StatusRequest { string scan_id = 1; }`. `message StatusResponse { string scan_id = 1; string state = 2; float progress = 3; string current_step = 4; uint64 elapsed_time = 5; uint64 estimated_time = 6; }`. `message ReportRequest { string scan_id = 1; string format = 2; optional ReportOptions options = 3; }`. `message ReportResponse { bytes report_data = 1; string content_type = 2; uint64 size = 3; }`.
+
+---
+
+**indonesian:**
+
+---
+
+## 📂 **`shared/` - SHARED CONTRACTS & TYPES**
+
+
+---
+
+### 📂 **`shared/contracts/` - KONTRAK LAYANAN**
+
+#### **1. `scanner_contract.rs`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk semua modul scanner yang memastikan konsistensi implementasi.
+
+**Tujuan:** File ini mendefinisikan trait `ScannerContract` dengan method signatures yang harus diimplementasikan oleh semua scanner: `fn scan_website(&self, url: Url) -> Result<ScanResult, ScannerError>`, `fn scan_with_profile(&self, url: Url, profile: Profile) -> Result<ScanResult, ScannerError>`, `fn cancel_scan(&self, scan_id: Uuid) -> Result<(), ScannerError>`, `fn get_scan_status(&self, scan_id: Uuid) -> Result<ScanStatus, ScannerError>`. Mendefinisikan **preconditions** dengan `debug_assert!` untuk memvalidasi input sebelum eksekusi: `debug_assert!(!url.as_str().is_empty())`, `debug_assert!(url.scheme() == "http" || url.scheme() == "https")`, `debug_assert!(profile.threads > 0 && profile.threads <= 200)`. Mendefinisikan **postconditions**: `assert!(result.start_time <= result.end_time)`, `assert!(result.modules_results.len() > 0)`, `assert!(result.status != ScanStatus::Unknown)`. Mendefinisikan **invariants**: `scan_id harus unik`, `start_time < end_time`, `progress antara 0-100`. Mendefinisikan error types: `ScannerError::InvalidUrl`, `ScannerError::DomainNotFound`, `ScannerError::ConnectionTimeout`, `ScannerError::ScanCancelled`, `ScannerError::RateLimited`. Menambahkan documentation attributes `#[doc = "..."]` untuk setiap method.
+
+---
+
+#### **2. `analyzer_contract.rs`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk semua analyzer components.
+
+**Tujuan:** File ini mendefinisikan trait `AnalyzerContract` dengan method: `fn analyze_scan_data(&self, data: ScanResult) -> Result<AnalysisResult, AnalysisError>`, `fn cross_reference_analysis(&self, result: AnalysisResult) -> Result<CrossReferenceResult, AnalysisError>`, `fn calculate_risk(&self, result: AnalysisResult) -> Result<RiskScore, AnalysisError>`. Mendefinisikan **preconditions**: `debug_assert!(!data.url.is_empty())`, `debug_assert!(data.modules_results.len() > 0)`, `debug_assert!(data.status == ScanStatus::Completed)`. Mendefinisikan **performance contract**: `const ANALYSIS_TIMEOUT_MINUTES: u64 = 5` - analysis harus selesai dalam 5 menit untuk website standar (100 pages). Jika tidak, dianggap timeout. Mendefinisikan **error conditions**: `AnalysisError::IncompleteData` jika data tidak lengkap, `AnalysisError::ModelLoadFailed` jika model AI gagal di-load, `AnalysisError::CorrelationFailed` jika cross-reference gagal, `AnalysisError::TimeoutExceeded` jika melebihi 5 menit. Mendefinisikan **output guarantees**: `result.findings.len() > 0` (setidaknya ada satu finding), `result.risk_score >= 0.0 && result.risk_score <= 10.0` (CVSS score range).
+
+---
+
+#### **3. `orchestrator_contract.go`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk orchestrator workflow management.
+
+**Tujuan:** File ini mendefinisikan interface `OrchestratorContract` dengan method: `StartWorkflow(req WorkflowRequest) (WorkflowID, error)`, `GetWorkflowStatus(id WorkflowID) (WorkflowStatus, error)`, `PauseWorkflow(id WorkflowID) error`, `ResumeWorkflow(id WorkflowID) error`, `CancelWorkflow(id WorkflowID) error`. Mendefinisikan **state machine contract** dengan constant state definitions: `StateIdle = "IDLE"`, `StatePreparing = "PREPARING"`, `StateScanning = "SCANNING"`, `StateAnalyzing = "ANALYZING"`, `StateReporting = "REPORTING"`, `StateComplete = "COMPLETE"`, `StateError = "ERROR"`. Mendefinisikan **valid state transitions** dengan `map[State][]State` untuk validasi: `IDLE -> PREPARING`, `PREPARING -> SCANNING`, `SCANNING -> ANALYZING`, `ANALYZING -> REPORTING`, `REPORTING -> COMPLETE`, `ANY -> ERROR`, `ERROR -> IDLE`. Mendefinisikan **workflow guarantees**: workflow harus idempotent (dapat dijalankan ulang tanpa efek samping), workflow harus transactional (all-or-nothing), workflow harus durable (state disimpan di persistent storage). Mendefinisikan error types: `ErrWorkflowNotFound`, `ErrWorkflowAlreadyRunning`, `ErrWorkflowPaused`, `ErrWorkflowCancelled`, `ErrInvalidTransition`.
+
+---
+
+#### **4. `storage_contract.rs`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk semua storage operations.
+
+**Tujuan:** File ini mendefinisikan trait `StorageContract` dengan method: `fn store_data(&self, key: StorageKey, data: StorageValue) -> Result<(), StorageError>`, `fn retrieve_data(&self, key: StorageKey) -> Result<Option<StorageValue>, StorageError>`, `fn delete_data(&self, key: StorageKey) -> Result<(), StorageError>`, `fn query_data(&self, query: DataQuery) -> Result<Vec<StorageValue>, StorageError>`. Mendefinisikan **consistency guarantees**: write operations must be strongly consistent (immediately visible to all readers), read operations can be eventually consistent (cached) dengan `ConsistencyLevel` enum: `StrongConsistency`, `EventualConsistency`, `ReadAfterWriteConsistency`. Mendefinisikan **durability guarantee**: `async fn durability_check() -> Result<bool>` yang memverifikasi data persist across system restarts. Mendefinisikan **error types**: `StorageError::KeyNotFound`, `StorageError::KeyAlreadyExists`, `StorageError::ConnectionFailed`, `StorageError::IntegrityError`, `StorageError::SerializationError`. Mendefinisikan **performance SLAs**: store_data < 100ms, retrieve_data < 50ms, delete_data < 100ms, query_data < 500ms untuk 1000 records.
+
+---
+
+#### **5. `agent_contract.rs`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk semua agents dalam sistem.
+
+**Tujuan:** File ini mendefinisikan trait `AgentContract` dengan method: `fn init(&mut self) -> Result<(), AgentError>`, `fn run(&mut self) -> Result<(), AgentError>`, `fn pause(&mut self) -> Result<(), AgentError>`, `fn resume(&mut self) -> Result<(), AgentError>`, `fn shutdown(&mut self) -> Result<(), AgentError>`, `fn get_state(&self) -> AgentState`, `fn send_message(&self, msg: AgentMessage) -> Result<(), AgentError>`. Mendefinisikan **lifecycle validation** dengan method `fn validate_transition(from: AgentState, to: AgentState) -> bool` dan state transition table: `Uninitialized -> Initialized`, `Initialized -> Running`, `Running -> Paused`, `Paused -> Running`, `Running -> ShuttingDown`, `Paused -> ShuttingDown`, `ShuttingDown -> Shutdown`. Mendefinisikan **heartbeat contract**: `const HEARTBEAT_INTERVAL_SECONDS: u64 = 30`, `fn send_heartbeat(&self) -> Result<()>` - agent harus mengirim heartbeat setiap 30 detik atau supervisor akan menganggap mati dan restart. Mendefinisikan **error types**: `AgentError::AlreadyRunning`, `AgentError::AlreadyStopped`, `AgentError::HeartbeatMissed`, `AgentError::StateTransitionInvalid`, `AgentError::MessageDeliveryFailed`.
+
+---
+
+#### **6. `model_contract.py`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk semua AI/ML models.
+
+**Tujuan:** File ini mendefinisikan abstract base class `ModelContract` dengan method: `@abstractmethod def load_model(self, config: ModelConfig) -> Model`, `@abstractmethod def predict(self, features: FeatureVector) -> PredictionResult`, `@abstractmethod def explain(self, prediction: PredictionResult) -> Explanation`, `@abstractmethod def train(self, data: TrainingData) -> TrainingResult`, `@abstractmethod def evaluate(self, data: TrainingData) -> EvaluationMetrics`. Mendefinisikan **input validation decorator**: `@validate_input` yang memeriksa feature vector length dan data types (semua values harus float, tidak ada NaN, length sesuai dengan model yang di-load). Mendefinisikan **output schema** dengan dataclass `PredictionResult` yang wajib memiliki fields: `label: str` (prediksi label), `confidence: float` (0-1), `probabilities: Dict[str, float]` (label -> probability). Mendefinisikan **performance requirements**: predict < 100ms untuk inference, train < 1 hour untuk dataset 10,000 samples, evaluate < 5 minutes untuk test dataset 2,000 samples. Mendefinisikan error types: `ModelError::LoadFailed`, `ModelError::InvalidInput`, `ModelError::PredictionFailed`, `ModelError::TrainingFailed`.
+
+---
+
+#### **7. `module_contract.rs`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk semua functional modules.
+
+**Tujuan:** File ini mendefinisikan trait `ModuleContract` dengan method: `fn execute(&self, input: ModuleInput) -> Result<ModuleOutput, ModuleError>`, `fn validate_config(&self, config: Config) -> Result<ValidationResult, ModuleError>`, `fn get_capabilities(&self) -> Capabilities`, `fn get_version(&self) -> Version`. Mendefinisikan **capability flags** dengan bitmask: `CAP_NETWORK_SCAN = 0x01`, `CAP_CONTENT_ANALYSIS = 0x02`, `CAP_SECURITY_CHECK = 0x04`, `CAP_INTELLIGENCE = 0x08`, `CAP_INFRASTRUCTURE = 0x10`. Mendefinisikan **timeout behavior**: `fn execute_with_timeout(&self, input: ModuleInput, timeout: Duration) -> Result<ModuleOutput>` - setiap module harus support timeout dan cancelation. Mendefinisikan **error handling contract**: setiap error harus mengimplementasikan `ModuleError` trait dengan methods: `code() -> String` (error code), `message() -> String` (human-readable message), `details() -> Option<serde_json::Value>` (optional detail). Mendefinisikan **versioning**: `const API_VERSION: &str = "v1.0"` - module harus compatible dengan API version.
+
+---
+
+#### **8. `integration_contract.rs`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk semua third-party integrations.
+
+**Tujuan:** File ini mendefinisikan trait `IntegrationContract` dengan method: `fn connect(&self, config: IntegrationConfig) -> Result<Connection, IntegrationError>`, `fn query(&self, request: Request) -> Result<Response, IntegrationError>`, `fn validate_credentials(&self, creds: Credentials) -> Result<(), IntegrationError>`, `fn disconnect(&self) -> Result<(), IntegrationError>`. Mendefinisikan **retry policy** dengan struct `RetryPolicy { max_attempts: u32, initial_backoff: Duration, max_backoff: Duration, multiplier: f32 }` - default: max_attempts=3, initial_backoff=1s, max_backoff=30s, multiplier=2. Mendefinisikan **rate limiting contract**: `fn check_rate_limit(&self) -> Result<bool>` yang mengembalikan false jika rate limit exceeded (berdasarkan tier: free = 1 req/s, paid = 5 req/s). Mendefinisikan **error types**: `IntegrationError::AuthenticationFailed`, `IntegrationError::RateLimitExceeded`, `IntegrationError::Timeout`, `IntegrationError::InvalidResponse`, `IntegrationError::ServiceUnavailable`. Mendefinisikan **connection lifecycle**: connect -> (query)* -> disconnect, connection harus di-reconnect jika idle > 5 menit.
+
+---
+
+#### **9. `api_contract.rs`**
+
+**Tugas:** Mendefinisikan kontrak formal untuk semua API endpoints.
+
+**Tujuan:** File ini mendefinisikan trait `ApiContract` dengan method: `fn handle_request(&self, req: ApiRequest) -> ApiResponse`, `fn authenticate(&self, req: ApiRequest) -> Result<AuthResult, ApiError>`, `fn authorize(&self, req: ApiRequest, permission: Permission) -> Result<AuthResult, ApiError>`. Mendefinisikan **API versioning** dengan enum `ApiVersion { V1, V2, V3 }` - API harus mendukung versioning untuk backward compatibility. Mendefinisikan **response format** dengan struct `ApiResponse<T>`: `status: u16` (HTTP status code), `data: Option<T>` (response data), `error: Option<ApiError>` (error details), `timestamp: DateTime<Utc>` (response timestamp), `request_id: String` (unique request ID untuk tracing). Mendefinisikan **error codes**: `AUTH_001` (Invalid token), `AUTH_002` (Token expired), `AUTH_003` (Permission denied), `API_001` (Invalid request), `API_002` (Rate limit exceeded), `API_003` (Internal server error), `API_004` (Resource not found). Mendefinisikan **API guarantees**: semua response harus memiliki `request_id` untuk tracing, semua error harus memiliki `code` dan `message`, response time harus < 1s untuk 95% requests.
+
+---
+
+### 📂 **`shared/types/` - TIPE DATA BERSAMA**
+
+#### **1. `common_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data dasar yang digunakan di seluruh sistem.
+
+**Tujuan:** File ini mendefinisikan tipe-tipe fundamental yang digunakan secara global. `Url` dengan wrapper struct `#[derive(Debug, Clone, Serialize, Deserialize)]` dan custom validation di `new()` method: jika scheme tidak http/https, return `InvalidUrl` error. `Domain` dengan validation `is_ascii() && !is_empty() && !contains(' ')` dan `ToAscii` untuk punycode. `IpAddress` dengan enum `#[derive(Debug, Clone, Copy, PartialEq, Eq)]` dengan variants `V4(Ipv4Addr)` dan `V6(Ipv6Addr)`. `Timestamp` dengan `DateTime<Utc>` dan `FromStr` impl untuk parsing ISO 8601. `Duration` dengan `std::time::Duration` dan methods `to_millis()`, `to_seconds()`. `ScanId` dan `UserId` dengan `Uuid` wrapper. `Severity` enum `#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]` dengan variants `Critical`, `High`, `Medium`, `Low`, `Info` dan `Display` impl untuk string representation. `Status` enum dengan variants `Active`, `Completed`, `Failed`, `Cancelled`, `Pending` dan `From<&str>` impl untuk parsing. `Confidence` enum `#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]` dengan variants `High`, `Medium`, `Low`. `Priority` enum dengan variants `P0`, `P1`, `P2`, `P3`, `P4` dan `rank()` method mengembalikan u8 (P0=0, P4=4). Implementasi `Serialize` dan `Deserialize` untuk semua tipe menggunakan `serde`.
+
+---
+
+#### **2. `network_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk semua operasi jaringan.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk network reconnaissance. `DnsRecord` dengan fields: `record_type: DnsRecordType` (enum A, AAAA, CNAME, MX, TXT, NS, SOA, SRV), `name: String`, `value: String`, `ttl: u32`, `priority: Option<u16>` (untuk MX dan SRV). `PortScanResult` dengan fields: `port: u16`, `protocol: Protocol` (TCP, UDP), `state: PortState` (Open, Closed, Filtered), `service: Option<String>`, `version: Option<String>` (service version). `WhoisData` dengan fields: `registrar: String`, `creation_date: DateTime<Utc>`, `expiry_date: DateTime<Utc>`, `updated_date: Option<DateTime<Utc>>`, `nameservers: Vec<String>`, `registrant: Option<Contact>`, `tech_contact: Option<Contact>`, `admin_contact: Option<Contact>`, `status: Vec<String>`. `TracerouteHop` dengan fields: `hop_number: u32`, `ip: IpAddr`, `hostname: Option<String>`, `rtt_ms: Vec<u64>` (per probe, biasanya 3 probes), `location: Option<GeoLocation>` (country, city, lat, lon). `SslCertificate` dengan fields: `subject: String`, `issuer: String`, `valid_from: DateTime<Utc>`, `valid_to: DateTime<Utc>`, `san: Vec<String>` (Subject Alternative Names), `cipher_suites: Vec<CipherSuite>`, `key_type: KeyType` (RSA, ECDSA), `key_size: u16`, `signature_algorithm: String`. Implementasi `Display` untuk semua tipe untuk logging.
+
+---
+
+#### **3. `security_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk analisis keamanan.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk security assessment. `HeaderAnalysis` dengan fields: `header_name: String`, `value: String`, `score: u8` (0-10), `issues: Vec<String>`, `recommendations: Vec<String>`, `is_present: bool`, `is_valid: bool`. `CookieAnalysis` dengan fields: `name: String`, `secure: bool`, `httponly: bool`, `samesite: SameSite` (Lax, Strict, None), `domain: Option<String>`, `path: Option<String>`, `expires: Option<DateTime<Utc>>`, `is_session: bool` (tidak ada expiration). `Vulnerability` dengan fields: `cve_id: String`, `title: String`, `description: String`, `severity: Severity`, `cvss_score: f32`, `cvss_vector: String`, `affected_software: Vec<SoftwareVersion>` (name, version, version_ranges), `references: Vec<String>`, `remediation: Option<String>`. `XssFinding` dengan fields: `type: XssType` (Reflected, Stored, DOM), `location: String` (URL atau form), `payload: String`, `context: XssContext` (HTML, Attribute, JavaScript), `confidence: Confidence`. `SqlFinding` dengan fields: `type: SqlType` (Boolean, Time, Error, Union), `parameter: String`, `payload: String`, `error_message: Option<String>`, `confidence: Confidence`. `CsrfFinding` dengan fields: `form_action: String`, `method: String`, `has_token: bool`, `token_valid: bool`, `samesite_status: SameSite`, `vulnerable: bool`. Implementasi `to_json()` untuk semua tipe menggunakan `serde_json`.
+
+---
+
+#### **4. `content_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk konten website.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk content analysis. `ParsedHtml` dengan fields: `title: Option<String>`, `headings: Vec<Heading>` (level, text, id), `forms: Vec<Form>` (action, method, inputs, id, name), `scripts: Vec<Script>` (src, type, content, async, defer), `images: Vec<Image>` (src, alt, title, width, height), `links: Vec<Link>` (href, rel, target, text). `JsAnalysis` dengan fields: `framework_detected: Vec<Framework>` (name, version), `api_keys: Vec<ApiKey>` (key, source, line, column), `dangerous_functions: Vec<DangerousFunction>` (name, line, column, context), `library_versions: Vec<LibraryVersion>` (name, version), `obfuscation_detected: bool`, `total_functions: usize`, `total_lines: usize`. `CssInfo` dengan fields: `total_rules: usize`, `total_selectors: usize`, `frameworks: Vec<Framework>`, `unused_percentage: f32`, `variables: Vec<CssVariable>` (name, value), `imports: Vec<String>`. `MetaData` dengan fields: `og_tags: HashMap<String, String>`, `twitter_cards: HashMap<String, String>`, `canonical_url: Option<Url>`, `robots: String`, `sitemap: Option<Url>`, `rss_feed: Option<Url>`, `description: Option<String>`, `keywords: Vec<String>`. `LinkGraph` dengan fields: `internal_links: Vec<Link>`, `external_links: Vec<Link>`, `broken_links: Vec<BrokenLink>` (url, status_code, error), `redirect_chains: Vec<RedirectChain>` (urls, status_codes). Implementasi `From<&str>` untuk parsing.
+
+---
+
+#### **5. `infrastructure_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk infrastruktur dan hosting.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk infrastructure intelligence. `ServerInfo` dengan fields: `server_type: ServerType` (Apache, Nginx, IIS, Lighttpd, Caddy, Unknown), `version: Option<String>`, `os: Option<String>` (Linux, Windows, macOS), `powered_by: Option<String>` (X-Powered-By header), `framework: Option<String>` (backend framework), `platform: Option<String>` (PHP, .NET, Node.js, Python). `CloudProvider` dengan fields: `provider: CloudProviderType` (AWS, GCP, Azure, DO, Heroku, Unknown), `region: Option<String>` (us-east-1, eu-west-1, etc), `services: Vec<CloudService>` (EC2, S3, CloudFront, GCE, etc), `confidence: f32`. `CdnInfo` dengan fields: `provider: CdnProvider` (Cloudflare, Akamai, Fastly, CloudFront, GCP, Azure, Unknown), `edge_locations: Vec<String>` (data center codes), `cache_status: CacheStatus` (Hit, Miss, Bypass), `is_cdn: bool`. `LoadBalancerInfo` dengan fields: `type: LBType` (Hardware, Software, Cloud), `algorithm: LBAlgorithm` (RoundRobin, LeastConn, IPHash, Random), `backend_count: Option<usize>`, `sticky_session: bool`, `detected_via: DetectionMethod` (Header, Cookie, TTL, Pattern). `HostingInfo` dengan fields: `provider: String`, `isp: String`, `asn: u32`, `country: String`, `city: String`, `latitude: f64`, `longitude: f64`, `timezone: String`, `data_center: Option<String>`. Implementasi `Display` untuk logging.
+
+---
+
+#### **6. `intelligence_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk threat intelligence.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk threat intelligence. `ThreatData` dengan fields: `indicators: Vec<Indicator>` (type, value, first_seen, last_seen), `families: Vec<String>` (malware families), `severity: Severity`, `timestamp: DateTime<Utc>`, `sources: Vec<ThreatSource>` (name, confidence, url). `ReputationScore` dengan fields: `overall_score: u8` (0-100), `categories: Vec<ReputationCategory>` (Malicious, Phishing, Suspicious, Benign, Unknown), `vendors: Vec<VendorResult>` (name, verdict, detection_rate), `total_vendors: usize`, `detections: usize`. `BlacklistStatus` dengan fields: `listed_in: Vec<BlacklistSource>` (Spamhaus, SURBL, URIBL, DNSBL, SORBS), `categories: Vec<BlacklistCategory>` (Spam, Malware, Phishing, Exploit, Abuse), `reasons: Vec<String>`. `HarvestedEmail` dengan fields: `email: String`, `category: EmailCategory` (Role, Personal, Generic), `source: EmailSource` (HTML, JS, Mailto, File, Comment), `validation_status: ValidationStatus` (Valid, Invalid, Disposable, RoleBased). Implementasi `From<serde_json::Value>` untuk parsing dari API responses.
+
+---
+
+#### **7. `agent_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk agent system.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk agent management. `AgentState` enum dengan variants: `Uninitialized`, `Initialized`, `Running`, `Paused`, `ShuttingDown`, `Shutdown`. `AgentMessage` dengan fields: `sender_id: String`, `recipient_id: String`, `message_type: MessageType` (Heartbeat, StatusRequest, StatusResponse, TaskAssignment, TaskComplete, ErrorReport, LogEntry), `payload: Vec<u8>`, `timestamp: DateTime<Utc>`. `WorkflowRequest` dengan fields: `scan_target: Url`, `profile: Profile`, `options: WorkflowOptions` (timeout, max_pages, follow_redirects, respect_robots). `WorkflowStatus` dengan fields: `id: WorkflowID` (UUID), `state: WorkflowState` (IDLE, PREPARING, SCANNING, ANALYZING, REPORTING, COMPLETE, ERROR), `progress: f32`, `start_time: DateTime<Utc>`, `end_time: Option<DateTime<Utc>>`, `error: Option<String>`, `current_step: String`. Implementasi `Serialize` dan `Deserialize` untuk semua tipe.
+
+---
+
+#### **8. `model_types.py`**
+
+**Tugas:** Mendefinisikan tipe data untuk AI/ML models.
+
+**Tujuan:** File ini mendefinisikan dataclass untuk model management. `FeatureVector` dengan `values: List[float]` dan `validate()` method untuk memeriksa panjang dan NaN values. `PredictionResult` dengan fields: `label: str`, `confidence: float` (0-1), `probabilities: Dict[str, float]` (label -> probability). `TrainingData` dengan fields: `features: List[FeatureVector]`, `labels: List[str]`, `weights: Optional[List[float]]`, `validate()` untuk memeriksa konsistensi (semua features sama panjang). `ModelConfig` dengan fields: `model_type: str` (RandomForest, SVM, GradientBoosting), `hyperparameters: Dict[str, Any]`, `path: Optional[str]`, `version: str`. `EvaluationMetrics` dengan fields: `accuracy: float`, `precision: float`, `recall: float`, `f1: float`, `auc_roc: float`, `confusion_matrix: List[List[int]]`. Implementasi `__post_init__` untuk validasi.
+
+---
+
+#### **9. `storage_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk storage operations.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk storage management. `StorageKey` dengan fields: `namespace: String` (scan, report, config), `id: String`, `to_string()` method untuk serialization. `StorageValue` dengan fields: `data: Vec<u8>`, `metadata: ValueMetadata` (content_type, size, created_at, updated_at, version). `DataQuery` dengan fields: `filters: Vec<QueryFilter>` (field, operator, value), `sort: Option<SortOrder>` (field, direction), `limit: Option<u32>`, `offset: Option<u32>`. `VersionMetadata` dengan fields: `version: u32`, `timestamp: DateTime<Utc>`, `author: String`, `message: String`. `BackupInfo` dengan fields: `backup_id: String`, `size: u64`, `created_at: DateTime<Utc>`, `location: BackupLocation` (Local, S3, GCS, Azure), `status: BackupStatus` (Pending, Running, Complete, Failed). Implementasi `Serialize` dan `Deserialize`.
+
+---
+
+#### **10. `report_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk reporting.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk report generation. `ReportData` dengan fields: `title: String`, `summary: Option<String>`, `findings: Vec<Finding>`, `recommendations: Vec<Recommendation>`, `metadata: ReportMetadata` (created_at, generated_by, version, language). `ExecutiveSummary` dengan fields: `overview: String`, `key_findings: Vec<KeyFinding>` (title, severity, impact), `risk_summary: RiskSummary` (total, critical, high, medium, low), `actions: Vec<ActionItem>` (priority, description, effort). `TechnicalDeepDive` dengan fields: `detailed_findings: Vec<DetailedFinding>` (description, evidence, poc, impact, remediation), `root_cause: Option<String>`, `affected_systems: Vec<String>`. `VulnerabilityTracker` dengan fields: `tracked_vulnerabilities: Vec<TrackedVulnerability>` (id, status, opened_at, closed_at, updated_at), `status_history: Vec<StatusChange>`, `sla_compliance: bool`. `TimelineEvent` dengan fields: `timestamp: DateTime<Utc>`, `event_type: TimelineEventType` (ScanStart, ScanComplete, FindingFound, StatusChange, AlertTriggered), `description: String`, `details: Option<serde_json::Value>`. Implementasi `ToHtml` dan `ToJson`.
+
+---
+
+#### **11. `error_types.rs`**
+
+**Tugas:** Mendefinisikan semua tipe error yang digunakan di sistem.
+
+**Tujuan:** File ini mendefinisikan error types untuk semua komponen. `ScannerError` enum dengan variants: `Timeout`, `ConnectionFailed(String)`, `ParseError(String)`, `InvalidTarget(String)`, `RateLimited`, `ScanCancelled`, `InternalError(String)`. `AnalyzerError` enum dengan variants: `InvalidData(String)`, `IncompleteData`, `ModelError(String)`, `CorrelationFailed(String)`, `TimeoutExceeded`. `StorageError` enum dengan variants: `NotFound`, `AlreadyExists`, `ConnectionFailed`, `IntegrityError(String)`, `SerializationError(String)`. `AgentError` enum dengan variants: `AlreadyRunning`, `AlreadyStopped`, `HeartbeatMissed`, `StateTransitionInvalid(String)`, `MessageDeliveryFailed`. `ApiError` enum dengan variants: `AuthenticationFailed`, `AuthorizationFailed`, `RateLimitExceeded`, `InvalidRequest(String)`, `InternalError(String)`. Setiap error mengimplementasikan `Display` dan `Error` traits, dan memiliki `code()` method mengembalikan string error code (E1001-E9999) dan `severity()` method mengembalikan `Severity`. Implementasi `From` untuk konversi antar error types.
+
+---
+
+#### **12. `config_types.rs`**
+
+**Tugas:** Mendefinisikan tipe data untuk konfigurasi sistem.
+
+**Tujuan:** File ini mendefinisikan struktur data untuk configuration management. `AppConfig` dengan fields: `env: Environment` (Development, Testing, Production), `debug: bool`, `log_level: LogLevel` (Debug, Info, Warn, Error, Fatal). `DatabaseConfig` dengan fields: `url: String`, `pool_size: usize` (default 20), `timeout: Duration` (default 30s), `max_lifetime: Duration` (default 10m). `ScanningConfig` dengan fields: `profiles: HashMap<String, Profile>`, `default_profile: String`, `max_threads: usize`, `default_timeout: Duration`. `ApiConfig` dengan fields: `host: String` (default "0.0.0.0"), `port: u16` (default 8080), `cors_origins: Vec<String>`, `rate_limit: RateLimitConfig` (requests, window). `IntegrationConfig` dengan fields: `service_name: String`, `api_key: String`, `endpoint: Url`, `timeout: Duration` (default 30s), `retry_policy: RetryPolicy`. Implementasi `FromEnv` untuk loading dari environment variables dengan prefix `IWS_`. Implementasi `Validate` untuk validasi konfigurasi.
+
+---
+
+### 📂 **`shared/interfaces/` - INTERFACE DEFINITIONS**
+
+#### **1. `scanner_interface.rs`**
+
+**Tugas:** Mendefinisikan trait Scanner yang menjadi base abstraction untuk semua scanner.
+
+**Tujuan:** File ini mendefinisikan trait `Scanner` dengan method `scan(Url) -> ScanResult`, `scan_with_profile(Url, Profile) -> ScanResult`, `cancel(Uuid) -> Result`, `status(Uuid) -> ScanStatus`. Menggunakan `async_trait` untuk async methods dengan `Send + Sync` bounds untuk thread safety. Mendefinisikan associated type `Error = ScannerError`. Menyertakan `#[must_use]` attribute untuk semua method yang mengembalikan Result (memperingatkan jika result diabaikan). Implementasi default method `scan_with_retry(url: Url, profile: Profile, max_retries: u8) -> ScanResult` yang memanggil `scan_with_profile()` dan retry jika gagal dengan exponential backoff. Menyertakan `fn get_capabilities()` untuk mendapatkan capabilities scanner.
+
+---
+
+#### **2. `analyzer_interface.rs`**
+
+**Tugas:** Mendefinisikan trait Analyzer untuk semua analyzer components.
+
+**Tujuan:** File ini mendefinisikan trait `Analyzer` dengan method `analyze(ScanResult) -> AnalysisResult`, `cross_reference(AnalysisResult) -> CrossReferenceResult`, `calculate_risk(AnalysisResult) -> RiskScore`. Menggunakan `async_trait` dengan `Send + Sync` bounds. Mendefinisikan associated type `Error = AnalyzerError`. Menambahkan method `get_analysis_progress() -> f32` untuk streaming progress (0-100) selama analisis berlangsung. Menambahkan method `get_analysis_stages() -> Vec<AnalysisStage>` untuk mendapatkan daftar stage dan statusnya. Implementasi `default` untuk method yang opsional.
+
+---
+
+#### **3. `orchestrator_interface.go`**
+
+**Tugas:** Mendefinisikan interface Orchestrator untuk workflow management.
+
+**Tujuan:** File ini mendefinisikan interface `Orchestrator` dengan method `StartWorkflow(WorkflowRequest) (WorkflowID, error)`, `GetWorkflowStatus(WorkflowID) (WorkflowStatus, error)`, `PauseWorkflow(WorkflowID) error`, `ResumeWorkflow(WorkflowID) error`, `CancelWorkflow(WorkflowID) error`. Menambahkan method `On(event string, callback func(WorkflowStatus))` untuk event registration (memungkinkan subscriber mendengar event). Implementasi `RegisterWorkflowCallback` dengan map of callbacks. Menambahkan method `GetWorkflowHistory(WorkflowID) ([]WorkflowStatus, error)` untuk mendapatkan history status changes. Menambahkan method `ListActiveWorkflows() ([]WorkflowID, error)` untuk mendapatkan semua workflow yang aktif.
+
+---
+
+#### **4. `storage_interface.rs`**
+
+**Tugas:** Mendefinisikan trait Storage untuk data persistence.
+
+**Tujuan:** File ini mendefinisikan trait `Storage` dengan method `store(StorageKey, StorageValue) -> Result`, `retrieve(StorageKey) -> Option<StorageValue>`, `delete(StorageKey) -> Result`, `query(DataQuery) -> Vec<StorageValue>`. Menggunakan `async_trait` dengan `Send + Sync` bounds. Method tambahan: `backup(BackupRequest) -> Result<BackupInfo>`, `restore(RestoreRequest) -> Result`, `health_check() -> bool`. Menambahkan method `get_metrics()` untuk mendapatkan storage metrics (size, entries, qps). Menambahkan method `compact()` untuk melakukan compaction/optimization.
+
+---
+
+#### **5. `agent_interface.rs`**
+
+**Tugas:** Mendefinisikan trait Agent untuk semua autonomous agents.
+
+**Tujuan:** File ini mendefinisikan trait `Agent` dengan method `init() -> Result`, `run() -> Result`, `pause() -> Result`, `resume() -> Result`, `shutdown() -> Result`, `get_state() -> AgentState`, `send_message(AgentMessage) -> Result`. Menggunakan `async_trait` dengan `Send + Sync` bounds. Method tambahan: `get_id() -> String` (unique agent ID), `get_type() -> AgentType` (Reconnaissance, Analysis, Reporting, Monitoring, ModelIntegration), `on_event(callback: fn(AgentEvent))` untuk event handling. Implementasi `default` untuk method yang opsional.
+
+---
+
+#### **6. `module_interface.rs`**
+
+**Tugas:** Mendefinisikan trait Module untuk semua functional modules.
+
+**Tujuan:** File ini mendefinisikan trait `Module` dengan method `execute(ModuleInput) -> ModuleOutput`, `validate_config(Config) -> ValidationResult`, `get_capabilities() -> Capabilities`, `get_version() -> Version`. Menggunakan `async_trait` dengan `Send + Sync` bounds. Method tambahan: `get_dependencies() -> Vec<String>` (dependencies pada module lain), `get_requirements() -> Vec<Requirement>` (system requirements), `get_config_schema() -> JsonSchema` (schema untuk konfigurasi module). Implementasi `default` untuk method yang opsional.
+
+---
+
+#### **7. `integration_interface.rs`**
+
+**Tugas:** Mendefinisikan trait Integration untuk third-party integrations.
+
+**Tujuan:** File ini mendefinisikan trait `Integration` dengan method `connect(IntegrationConfig) -> Connection`, `query(Request) -> Response`, `validate_credentials(Credentials) -> Result`, `disconnect() -> Result`. Menggunakan `async_trait` dengan `Send + Sync` bounds. Method tambahan: `get_rate_limit_status() -> RateLimitStatus` (remaining, reset), `get_health_status() -> HealthStatus` (healthy, degraded, unhealthy), `get_capabilities() -> IntegrationCapabilities` (supported features). Implementasi `default` untuk method yang opsional.
+
+---
+
+#### **8. `reporter_interface.rs`**
+
+**Tugas:** Mendefinisikan trait Reporter untuk report generation.
+
+**Tujuan:** File ini mendefinisikan trait `Reporter` dengan method `generate(ReportData) -> Vec<u8>`, `export(ReportData, Format) -> Vec<u8>`, `validate_template(String) -> bool`. Menggunakan `async_trait` dengan `Send + Sync` bounds. Method tambahan: `get_supported_formats() -> Vec<Format>` (JSON, TXT, DOCS, CSV, HTML, PDF), `set_template(String) -> Result`, `get_template() -> String` (get current template), `get_template_variables() -> Vec<String>` (variables available in template). Implementasi `default` untuk method yang opsional.
+
+---
+
+### 📂 **`shared/proto/` - PROTOCOL BUFFERS**
+
+#### **1. `agent_messages.proto`**
+
+**Tugas:** Mendefinisikan protokol komunikasi untuk inter-agent messaging.
+
+**Tujuan:** File ini mendefinisikan protobuf schema untuk agent communication. `message AgentMessage { string sender_id = 1; string recipient_id = 2; string message_type = 3; bytes payload = 4; uint64 timestamp = 5; }`. Mendefinisikan enum `MessageType`: `HEARTBEAT = 0`, `STATUS_REQUEST = 1`, `STATUS_RESPONSE = 2`, `TASK_ASSIGNMENT = 3`, `TASK_COMPLETE = 4`, `ERROR_REPORT = 5`, `LOG_ENTRY = 6`. Menambahkan `oneof` untuk type-specific payloads: `oneof message_payload { HeartbeatPayload heartbeat = 6; StatusResponse status = 7; TaskAssignment task = 8; TaskComplete complete = 9; ErrorReport error = 10; LogEntry log = 11; }`. Mendefinisikan service `AgentService { rpc SendMessage(AgentMessage) returns (Ack); rpc StreamMessages(stream AgentMessage) returns (stream AgentMessage); }` untuk streaming communication.
+
+---
+
+#### **2. `scan_events.proto`**
+
+**Tugas:** Mendefinisikan protokol komunikasi untuk scan events.
+
+**Tujuan:** File ini mendefinisikan protobuf schema untuk scan events. `message ScanEvent { string scan_id = 1; string event_type = 2; bytes data = 3; uint64 timestamp = 4; }`. Mendefinisikan enum `EventType`: `SCAN_STARTED = 0`, `SCAN_PROGRESS = 1`, `SCAN_PAUSED = 2`, `SCAN_RESUMED = 3`, `MODULE_STARTED = 4`, `MODULE_COMPLETED = 5`, `SCAN_COMPLETED = 6`, `SCAN_FAILED = 7`. Menambahkan type-specific payloads: `message ScanProgress { float progress = 1; string status = 2; uint32 pages_done = 3; uint32 pages_total = 4; }`, `message ModuleEvent { string module_name = 1; string status = 2; uint32 duration = 3; }`. Mendefinisikan service `ScanEventService { rpc SubscribeEvents(SubscribeRequest) returns (stream ScanEvent); rpc EmitEvent(ScanEvent) returns (Ack); }`.
+
+---
+
+#### **3. `analysis_results.proto`**
+
+**Tugas:** Mendefinisikan protokol komunikasi untuk analysis results.
+
+**Tujuan:** File ini mendefinisikan protobuf schema untuk analysis results. `message AnalysisResult { string scan_id = 1; repeated Finding findings = 2; RiskScore risk_score = 3; string summary = 4; uint64 timestamp = 5; }`. Mendefinisikan `Finding` dengan `oneof` untuk finding types: `message Finding { string id = 1; string type = 2; Severity severity = 3; string description = 4; oneof detail { SecurityFinding security = 5; ContentFinding content = 6; InfrastructureFinding infrastructure = 7; IntelligenceFinding intelligence = 8; } }`. Mendefinisikan `RiskScore`: `float base_score = 1; float temporal_score = 2; float environmental_score = 3; float business_score = 4; string priority = 5`. Mendefinisikan `Severity` enum: `CRITICAL = 0`, `HIGH = 1`, `MEDIUM = 2`, `LOW = 3`, `INFO = 4`.
+
+---
+
+#### **4. `report_data.proto`**
+
+**Tugas:** Mendefinisikan protokol komunikasi untuk report data.
+
+**Tujuan:** File ini mendefinisikan protobuf schema untuk report data. `message ReportData { string report_id = 1; string scan_id = 2; ExecutiveSummary summary = 3; TechnicalDeepDive details = 4; VulnerabilityTracker tracker = 5; Timeline timeline = 6; }`. Mendefinisikan `ExecutiveSummary`: `string overview = 1; repeated KeyFinding findings = 2; RiskSummary risk = 3; repeated ActionItem actions = 4`. `TechnicalDeepDive`: `repeated DetailedFinding findings = 1; optional string root_cause = 2; repeated string affected_systems = 3`. `VulnerabilityTracker`: `repeated TrackedVulnerability vulnerabilities = 1; repeated StatusChange history = 2; bool sla_compliance = 3`. `Timeline`: `repeated TimelineEvent events = 1`. Mendefinisikan `KeyFinding`: `string title = 1; Severity severity = 2; string impact = 3`.
+
+---
+
+#### **5. `api_payloads.proto`**
+
+**Tugas:** Mendefinisikan protokol komunikasi untuk API payloads.
+
+**Tujuan:** File ini mendefinisikan protobuf schema untuk API communication. `message ApiRequest { string endpoint = 1; string method = 2; map<string, string> headers = 3; bytes body = 4; }`. `message ApiResponse { int32 status_code = 1; map<string, string> headers = 2; bytes body = 3; string error = 4; }`. Mendefinisikan payloads: `message ScanRequest { string url = 1; string profile = 2; map<string, string> options = 3; }`. `message ScanResponse { string scan_id = 1; string status = 2; string message = 3; }`. `message StatusRequest { string scan_id = 1; }`. `message StatusResponse { string scan_id = 1; string state = 2; float progress = 3; string current_step = 4; uint64 elapsed_time = 5; uint64 estimated_time = 6; }`. `message ReportRequest { string scan_id = 1; string format = 2; optional ReportOptions options = 3; }`. `message ReportResponse { bytes report_data = 1; string content_type = 2; uint64 size = 3; }`.
+
+---
+
+**END**

@@ -1,0 +1,318 @@
+// shared/proto/agent_messages.proto
+// IWS v1.0 - Agent Messages Protocol
+// Mendefinisikan protokol komunikasi untuk inter-agent messaging
+
+syntax = "proto3";
+
+package iws.agent;
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+// AGENT MESSAGE
+// ============================================================
+
+// SPEC FIX #5: Field numbers 1-5 sesuai spec, oneof di 6-11,
+// field tambahan dipindah ke nomor > 11
+message AgentMessage {
+  string sender_id = 1;
+  string recipient_id = 2;
+  MessageType message_type = 3;
+  bytes payload = 4;
+  uint64 timestamp = 5;
+
+  // oneof sesuai spec: field numbers 6-11
+  oneof message_payload {
+    HeartbeatPayload heartbeat = 6;
+    StatusResponsePayload status = 7;
+    TaskAssignmentPayload task = 8;
+    TaskCompletePayload complete = 9;
+    ErrorReportPayload error = 10;
+    LogEntryPayload log = 11;
+  }
+
+  // Field tambahan di nomor > 11
+  string correlation_id = 12;
+  MessagePriority priority = 13;
+  uint32 ttl_seconds = 14;
+  uint32 retry_count = 15;
+  uint32 max_retries = 16;
+  map<string, string> metadata = 17;
+
+  // Additional oneof fields
+  TaskFailedPayload task_failed = 19;
+  StateChangePayload state_change = 20;
+}
+
+// SPEC FIX #5: Enum numbering sesuai spec — tanpa UNSPECIFIED untuk enum utama
+// HEARTBEAT=0 sebagai default (proto3 zero value)
+enum MessageType {
+  HEARTBEAT = 0;
+  STATUS_REQUEST = 1;
+  STATUS_RESPONSE = 2;
+  TASK_ASSIGNMENT = 3;
+  TASK_COMPLETE = 4;
+  ERROR_REPORT = 5;
+  LOG_ENTRY = 6;
+  // Tambahan di luar spec (nilai > spec):
+  HEARTBEAT_ACK = 10;
+  TASK_FAILED = 11;
+  TASK_PROGRESS = 12;
+  STATE_CHANGE = 13;
+  EVENT_NOTIFICATION = 14;
+  SHUTDOWN = 15;
+  SHUTDOWN_ACK = 16;
+}
+
+enum MessagePriority {
+  // Proto3: default 0 = NORMAL
+  MESSAGE_PRIORITY_NORMAL = 0;
+  MESSAGE_PRIORITY_LOW = 1;
+  MESSAGE_PRIORITY_HIGH = 2;
+  MESSAGE_PRIORITY_CRITICAL = 3;
+}
+
+// ============================================================
+// HEARTBEAT
+// ============================================================
+
+message HeartbeatPayload {
+  string agent_id = 1;
+  uint64 sequence = 2;
+  AgentState state = 3;
+  uint64 timestamp = 4;
+  float cpu_usage_percent = 5;
+  float memory_usage_mb = 6;
+  uint32 queue_depth = 7;
+  uint32 active_tasks = 8;
+  uint64 uptime_seconds = 9;
+}
+
+message HeartbeatAckPayload {
+  string agent_id = 1;
+  uint64 sequence = 2;
+  uint64 timestamp = 3;
+  bool healthy = 4;
+  string message = 5;
+}
+
+// ============================================================
+// STATUS
+// ============================================================
+
+message StatusRequestPayload {
+  string requestor_id = 1;
+  repeated string agent_ids = 2;
+  bool include_metrics = 3;
+}
+
+message StatusResponsePayload {
+  string agent_id = 1;
+  AgentState state = 2;
+  float uptime_seconds = 3;
+  uint64 messages_sent = 4;
+  uint64 messages_received = 5;
+  uint64 tasks_completed = 6;
+  uint64 tasks_failed = 7;
+  uint32 tasks_in_progress = 8;
+  uint64 last_heartbeat = 9;
+  string current_task = 10;
+  uint64 error_count = 11;
+  uint32 restarts_count = 12;
+  float cpu_usage_percent = 13;
+  float memory_usage_mb = 14;
+  uint32 queue_size = 15;
+}
+
+enum AgentState {
+  AGENT_STATE_UNINITIALIZED = 0;
+  AGENT_STATE_INITIALIZED = 1;
+  AGENT_STATE_RUNNING = 2;
+  AGENT_STATE_PAUSED = 3;
+  AGENT_STATE_SHUTTING_DOWN = 4;
+  AGENT_STATE_SHUTDOWN = 5;
+  AGENT_STATE_ERROR = 6;
+  AGENT_STATE_RESTARTING = 7;
+}
+
+enum AgentType {
+  AGENT_TYPE_RECONNAISSANCE = 0;
+  AGENT_TYPE_ANALYSIS = 1;
+  AGENT_TYPE_REPORTING = 2;
+  AGENT_TYPE_MONITORING = 3;
+  AGENT_TYPE_MODEL_INTEGRATION = 4;
+}
+
+// ============================================================
+// TASK ASSIGNMENT
+// ============================================================
+
+message TaskAssignmentPayload {
+  string task_id = 1;
+  string assigned_to = 2;
+  string assigned_by = 3;
+  TaskType task_type = 4;
+  bytes payload = 5;
+  TaskPriority priority = 6;
+  uint64 deadline = 7;
+  uint32 max_retries = 8;
+  uint64 created_at = 9;
+  map<string, string> metadata = 10;
+}
+
+message TaskCompletePayload {
+  string task_id = 1;
+  bytes result = 2;
+  uint64 completed_at = 3;
+  float duration_seconds = 4;
+}
+
+message TaskFailedPayload {
+  string task_id = 1;
+  string error_message = 2;
+  string error_code = 3;
+  uint64 failed_at = 4;
+  float duration_seconds = 5;
+  bool retryable = 6;
+}
+
+message TaskProgressPayload {
+  string task_id = 1;
+  float progress = 2;
+  string status_message = 3;
+  uint64 updated_at = 4;
+}
+
+enum TaskType {
+  TASK_TYPE_RECONNAISSANCE = 0;
+  TASK_TYPE_SCAN = 1;
+  TASK_TYPE_ANALYZE = 2;
+  TASK_TYPE_REPORT = 3;
+  TASK_TYPE_MONITOR = 4;
+  TASK_TYPE_BACKUP = 5;
+  TASK_TYPE_CLEANUP = 6;
+  TASK_TYPE_HEALTH_CHECK = 7;
+  TASK_TYPE_MODEL_TRAIN = 8;
+  TASK_TYPE_MODEL_EVALUATE = 9;
+}
+
+enum TaskPriority {
+  TASK_PRIORITY_NORMAL = 0;
+  TASK_PRIORITY_LOW = 1;
+  TASK_PRIORITY_HIGH = 2;
+  TASK_PRIORITY_CRITICAL = 3;
+}
+
+enum TaskStatus {
+  TASK_STATUS_PENDING = 0;
+  TASK_STATUS_ASSIGNED = 1;
+  TASK_STATUS_IN_PROGRESS = 2;
+  TASK_STATUS_COMPLETED = 3;
+  TASK_STATUS_FAILED = 4;
+  TASK_STATUS_CANCELLED = 5;
+  TASK_STATUS_RETRYING = 6;
+  TASK_STATUS_TIMED_OUT = 7;
+}
+
+// ============================================================
+// ERROR & LOG
+// ============================================================
+
+message ErrorReportPayload {
+  string error_id = 1;
+  string error_type = 2;
+  string code = 3;
+  string message = 4;
+  string severity = 5;
+  string component = 6;
+  string module = 7;
+  string stack_trace = 8;
+  uint64 timestamp = 9;
+  map<string, string> context = 10;
+  bool recoverable = 11;
+}
+
+message LogEntryPayload {
+  string log_id = 1;
+  LogLevel level = 2;
+  string message = 3;
+  string component = 4;
+  uint64 timestamp = 5;
+  map<string, string> fields = 6;
+}
+
+enum LogLevel {
+  LOG_LEVEL_INFO = 0;
+  LOG_LEVEL_TRACE = 1;
+  LOG_LEVEL_DEBUG = 2;
+  LOG_LEVEL_WARN = 3;
+  LOG_LEVEL_ERROR = 4;
+  LOG_LEVEL_FATAL = 5;
+}
+
+// ============================================================
+// STATE CHANGE & EVENT
+// ============================================================
+
+message StateChangePayload {
+  string agent_id = 1;
+  AgentState from_state = 2;
+  AgentState to_state = 3;
+  string reason = 4;
+  uint64 timestamp = 5;
+}
+
+message EventNotificationPayload {
+  string event_id = 1;
+  string agent_id = 2;
+  string event_type = 3;
+  bytes details = 4;
+  uint64 timestamp = 5;
+}
+
+// ============================================================
+// SERVICE DEFINITION
+// ============================================================
+
+service AgentService {
+  // Kirim message ke agent lain
+  rpc SendMessage(AgentMessage) returns (Ack);
+
+  // Streaming message bidirectional
+  rpc StreamMessages(stream AgentMessage) returns (stream AgentMessage);
+
+  // Request status dari agent
+  rpc GetStatus(StatusRequestPayload) returns (StatusResponsePayload);
+
+  // Subscribe ke events dari agent
+  rpc SubscribeEvents(SubscribeRequest) returns (stream EventNotificationPayload);
+
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message Ack {
+  bool success = 1;
+  string message = 2;
+  string error_code = 3;
+}
+
+message SubscribeRequest {
+  string subscriber_id = 1;
+  repeated string event_types = 2;
+  bool include_heartbeats = 3;
+}
+
+message HealthCheckRequest {
+  string requestor_id = 1;
+}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string status = 2;
+  float uptime_seconds = 3;
+  uint64 messages_processed = 4;
+  uint64 errors_count = 5;
+  float cpu_usage_percent = 6;
+  float memory_usage_mb = 7;
+}

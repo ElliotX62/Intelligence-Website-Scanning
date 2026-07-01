@@ -1,0 +1,455 @@
+// shared/proto/api_payloads.proto
+// IWS v1.0 - API Payloads Protocol
+// Mendefinisikan protokol komunikasi untuk API payloads
+
+syntax = "proto3";
+
+package iws.api;
+
+// ============================================================
+// API REQUEST & RESPONSE
+// ============================================================
+
+// SPEC FIX #7: Field numbers dan names sesuai spec
+// endpoint=1, method=2, headers=3, body=4
+// Field tambahan di nomor > 4
+message ApiRequest {
+  string endpoint = 1;
+  string method = 2;
+  map<string, string> headers = 3;
+  bytes body = 4;
+  // Field tambahan:
+  string request_id = 5;
+  string api_version = 6;
+  map<string, string> query_params = 7;
+  map<string, string> path_params = 8;
+  string content_type = 9;
+  AuthCredentials auth = 10;
+  string client_ip = 11;
+  string user_agent = 12;
+  uint64 timestamp = 13;
+}
+
+// SPEC FIX #7: headers sebagai map<string,string>, error sebagai string
+// status_code=1, headers=2, body=3, error=4
+message ApiResponse {
+  int32 status_code = 1;
+  map<string, string> headers = 2;
+  bytes body = 3;
+  string error = 4;                  // SPEC: string, bukan message
+  // Field tambahan:
+  string status_message = 5;
+  ResponseMetadata meta = 6;
+  string request_id = 7;
+  uint64 timestamp = 8;
+  string api_version = 9;
+}
+
+message ResponseMetadata {
+  uint64 total_count = 1;
+  uint32 page = 2;
+  uint32 page_size = 3;
+  uint32 total_pages = 4;
+  string next_page_token = 5;
+  uint64 processing_time_ms = 6;
+  uint64 rate_limit_remaining = 7;
+  uint64 rate_limit_reset_seconds = 8;
+  string server_version = 9;
+}
+
+// ============================================================
+// AUTHENTICATION
+// ============================================================
+
+message AuthCredentials {
+  AuthMethod method = 1;
+  string token = 2;
+  string api_key = 3;
+  string username = 4;
+  string password = 5;
+  string client_id = 6;
+  string client_secret = 7;
+  map<string, string> custom_fields = 8;
+}
+
+enum AuthMethod {
+  AUTH_METHOD_API_KEY = 0;
+  AUTH_METHOD_BEARER_TOKEN = 1;
+  AUTH_METHOD_JWT = 2;
+  AUTH_METHOD_BASIC_AUTH = 3;
+  AUTH_METHOD_OAUTH2 = 4;
+  AUTH_METHOD_NONE = 5;
+}
+
+message AuthResult {
+  bool authenticated = 1;
+  bool authorized = 2;
+  string user_id = 3;
+  string role = 4;
+  repeated string permissions = 5;
+  uint64 token_expires_at = 6;
+  string message = 7;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+  uint32 token_duration_hours = 3;
+}
+
+message LoginResponse {
+  string token = 1;
+  string refresh_token = 2;
+  uint64 expires_at = 3;
+  string user_id = 4;
+  string role = 5;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string token = 1;
+  uint64 expires_at = 2;
+}
+
+// ============================================================
+// API ERROR (struct, untuk internal use)
+// ============================================================
+
+message ApiError {
+  string code = 1;
+  string message = 2;
+  string severity = 3;
+  bytes details = 4;
+  string help_url = 5;
+  uint64 retry_after_seconds = 6;
+}
+
+// Predefined error codes
+// API_001 - Invalid request
+// API_002 - Rate limit exceeded
+// API_003 - Internal server error
+// API_004 - Resource not found
+// API_005 - Bad request
+// API_006 - Conflict
+// API_007 - Service unavailable
+// API_008 - Unprocessable entity
+// API_009 - Too many requests
+// API_010 - Invalid configuration
+// AUTH_001 - Invalid token
+// AUTH_002 - Token expired
+// AUTH_003 - Permission denied
+
+// ============================================================
+// SCAN ENDPOINTS
+// ============================================================
+
+// SPEC FIX #7: url=1 (bukan target_url), profile=2, options=3
+message ScanStartRequest {
+  string url = 1;
+  string profile = 2;
+  map<string, string> options = 3;   // SPEC: map, bukan message
+  // Field tambahan:
+  repeated string tags = 5;
+  string priority = 6;
+  string callback_url = 7;
+  bytes metadata = 8;
+}
+
+message ScanOptions {
+  uint64 timeout_seconds = 1;
+  uint32 max_pages = 2;
+  bool follow_redirects = 3;
+  bool respect_robots = 4;
+  bool enable_js = 5;
+  uint32 scan_depth = 6;
+  uint32 threads = 7;
+  uint64 delay_ms = 8;
+  repeated string modules = 9;
+  repeated string exclude_modules = 10;
+  repeated string output_formats = 11;
+}
+
+message ScanStartResponse {
+  string scan_id = 1;
+  string status = 2;
+  string message = 3;
+  string status_url = 4;
+  string report_url = 5;
+}
+
+message ScanStatusResponse {
+  string scan_id = 1;
+  string state = 2;
+  float progress = 3;
+  string current_step = 4;
+  uint64 elapsed_seconds = 5;
+  uint64 estimated_remaining_seconds = 6;
+  uint32 pages_done = 7;
+  uint32 pages_total = 8;
+  uint32 findings_count = 9;
+  repeated string modules_done = 10;
+  repeated string modules_pending = 11;
+  repeated string modules_failed = 12;
+  repeated string errors = 13;
+  uint64 last_updated = 14;
+}
+
+message ScanCancelRequest {
+  string reason = 1;
+}
+
+message ScanHistoryRequest {
+  uint32 page = 1;
+  uint32 page_size = 2;
+  string filter_status = 3;
+  string filter_profile = 4;
+  string sort_by = 5;
+  string sort_direction = 6;
+}
+
+message ScanHistoryResponse {
+  repeated ScanHistoryEntry scans = 1;
+  uint32 total = 2;
+  uint32 page = 3;
+  uint32 page_size = 4;
+  uint32 total_pages = 5;
+}
+
+message ScanHistoryEntry {
+  string scan_id = 1;
+  string target_url = 2;
+  string profile = 3;
+  string status = 4;
+  float progress = 5;
+  uint32 findings_count = 6;
+  float risk_score = 7;
+  uint64 started_at = 8;
+  uint64 completed_at = 9;
+}
+
+// ============================================================
+// ANALYSIS ENDPOINTS
+// ============================================================
+
+message AnalyzeRequest {
+  string scan_id = 1;
+  AnalysisConfig config = 2;
+}
+
+message AnalysisConfig {
+  bool enable_cross_reference = 1;
+  bool enable_cve_matching = 2;
+  bool enable_risk_scoring = 3;
+  bool enable_pattern_detection = 4;
+  bool enable_ml_classification = 5;
+  bool enable_nlp_processing = 6;
+  uint64 max_analysis_time_seconds = 7;
+}
+
+message AnalyzeResponse {
+  string analysis_id = 1;
+  string status = 2;
+  string message = 3;
+}
+
+// ============================================================
+// REPORT ENDPOINTS
+// ============================================================
+
+message ReportGenerateRequest {
+  string scan_id = 1;
+  string format = 2;
+  ReportOptions options = 3;
+}
+
+message ReportOptions {
+  string title_override = 1;
+  bool include_charts = 2;
+  bool include_raw_data = 3;
+  bool include_executive_summary = 4;
+  bool include_technical_details = 5;
+  bool include_vulnerability_tracker = 6;
+  bool include_timeline = 7;
+  string watermark = 8;
+  string language = 9;
+  string template = 10;
+}
+
+// SPEC FIX #7: report_data=1, content_type=2, size=3
+message ReportGenerateResponse {
+  bytes report_data = 1;
+  string content_type = 2;
+  uint64 size = 3;                   // SPEC: size, bukan size_bytes
+  // Field tambahan:
+  string report_id = 5;
+}
+
+// ============================================================
+// EXPORT ENDPOINTS
+// ============================================================
+
+message ExportRequest {
+  string scan_id = 1;
+  string format = 2;
+  string output_path = 3;
+}
+
+message ExportResponse {
+  string export_id = 1;
+  string output_path = 2;
+  uint64 size_bytes = 3;
+  string format = 4;
+}
+
+// ============================================================
+// MONITOR ENDPOINTS
+// ============================================================
+
+message MonitorStartRequest {
+  string url = 1;
+  string schedule = 2;
+  string profile = 3;
+  repeated string alert_channels = 4;
+  string baseline_scan_id = 5;
+}
+
+message MonitorStartResponse {
+  string monitor_id = 1;
+  string status = 2;
+  string message = 3;
+}
+
+message MonitorStopRequest {
+  string reason = 1;
+}
+
+message MonitorStatusResponse {
+  string monitor_id = 1;
+  bool active = 2;
+  string schedule = 3;
+  string last_check = 4;
+  string next_check = 5;
+  uint32 changes_detected = 6;
+  uint32 alerts_sent = 7;
+}
+
+// ============================================================
+// HEALTH ENDPOINTS
+// ============================================================
+
+message HealthResponse {
+  string status = 1;
+  string version = 2;
+  uint64 uptime_seconds = 3;
+  uint32 active_scans = 4;
+  uint64 total_scans = 5;
+  bool database_ok = 6;
+  bool redis_ok = 7;
+  bool storage_ok = 8;
+  double memory_usage_mb = 9;
+  double cpu_usage_percent = 10;
+}
+
+// ============================================================
+// CONFIG ENDPOINTS
+// ============================================================
+
+message ConfigGetRequest {
+  string key = 1;
+}
+
+message ConfigGetResponse {
+  string key = 1;
+  bytes value = 2;
+}
+
+message ConfigSetRequest {
+  string key = 1;
+  bytes value = 2;
+}
+
+message ConfigSetResponse {
+  string key = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+message ConfigListResponse {
+  map<string, bytes> configs = 1;
+}
+
+// ============================================================
+// PAGINATED RESPONSE
+// ============================================================
+
+message PaginatedResponse {
+  uint32 total = 1;
+  uint32 page = 2;
+  uint32 page_size = 3;
+  uint32 total_pages = 4;
+  bool has_next = 5;
+  bool has_previous = 6;
+}
+
+// ============================================================
+// SERVICE DEFINITION
+// ============================================================
+
+service ApiService {
+  // Scan endpoints
+  rpc StartScan(ScanStartRequest) returns (ScanStartResponse);
+  rpc GetScanStatus(ScanStatusRequest) returns (ScanStatusResponse);
+  rpc CancelScan(ScanCancelRequest) returns (Ack);
+  rpc GetScanHistory(ScanHistoryRequest) returns (ScanHistoryResponse);
+
+  // Analysis endpoints
+  rpc Analyze(AnalyzeRequest) returns (AnalyzeResponse);
+
+  // Report endpoints
+  rpc GenerateReport(ReportGenerateRequest) returns (ReportGenerateResponse);
+
+  // Export endpoints
+  rpc ExportData(ExportRequest) returns (ExportResponse);
+
+  // Monitor endpoints
+  rpc StartMonitor(MonitorStartRequest) returns (MonitorStartResponse);
+  rpc StopMonitor(MonitorStopRequest) returns (Ack);
+  rpc GetMonitorStatus(MonitorStatusRequest) returns (MonitorStatusResponse);
+
+  // Auth endpoints
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+
+  // Health endpoint
+  rpc HealthCheck(HealthCheckRequest) returns (HealthResponse);
+
+  // Config endpoints
+  rpc GetConfig(ConfigGetRequest) returns (ConfigGetResponse);
+  rpc SetConfig(ConfigSetRequest) returns (ConfigSetResponse);
+  rpc ListConfigs(ListConfigsRequest) returns (ConfigListResponse);
+}
+
+message ScanStatusRequest {
+  string scan_id = 1;
+}
+
+message MonitorStatusRequest {
+  string monitor_id = 1;
+}
+
+message HealthCheckRequest {
+  bool include_details = 1;
+}
+
+message ListConfigsRequest {
+  string namespace = 1;
+}
+
+message Ack {
+  bool success = 1;
+  string message = 2;
+  string error_code = 3;
+}

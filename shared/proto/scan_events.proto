@@ -1,0 +1,319 @@
+// shared/proto/scan_events.proto
+// IWS v1.0 - Scan Events Protocol
+// Mendefinisikan protokol komunikasi untuk scan events
+
+syntax = "proto3";
+
+package iws.scan;
+
+// ============================================================
+// SCAN EVENT
+// ============================================================
+
+// SPEC FIX #6: Field bytes data = 3 (sesuai spec),
+// timestamp di field 4, oneof di 10+
+message ScanEvent {
+  string scan_id = 1;
+  EventType event_type = 2;
+  bytes data = 3;                    // SPEC: raw bytes data
+  uint64 timestamp = 4;             // SPEC: uint64, bukan Timestamp
+
+  // Typed payloads di field > 10
+  oneof event_data {
+    ScanStartedData scan_started = 10;
+    ScanProgress scan_progress = 11;
+    ScanPausedData scan_paused = 12;
+    ScanResumedData scan_resumed = 13;
+    ModuleStartedData module_started = 14;
+    ModuleEvent module_completed = 15;
+    ModuleFailedData module_failed = 16;
+    FindingFoundData finding_found = 17;
+    ScanCompletedData scan_completed = 18;
+    ScanFailedData scan_failed = 19;
+    ScanCancelledData scan_cancelled = 20;
+  }
+}
+
+// SPEC FIX #6: Enum tanpa UNSPECIFIED, SCAN_STARTED=0
+enum EventType {
+  SCAN_STARTED = 0;
+  SCAN_PROGRESS = 1;
+  SCAN_PAUSED = 2;
+  SCAN_RESUMED = 3;
+  MODULE_STARTED = 4;
+  MODULE_COMPLETED = 5;
+  MODULE_FAILED = 6;
+  SCAN_COMPLETED = 7;
+  SCAN_FAILED = 8;
+  // Tambahan:
+  FINDING_FOUND = 9;
+  SCAN_CANCELLED = 10;
+}
+
+// ============================================================
+// EVENT DATA MESSAGES
+// ============================================================
+
+message ScanStartedData {
+  string target_url = 1;
+  string profile = 2;
+  uint32 thread_count = 3;
+  uint32 max_pages = 4;
+  uint32 max_depth = 5;
+  repeated string enabled_modules = 6;
+  uint64 started_at = 7;
+}
+
+// SPEC FIX #6: Rename dari ScanProgressData ke ScanProgress
+message ScanProgress {
+  float progress = 1;
+  string status = 2;
+  uint32 pages_done = 3;
+  uint32 pages_total = 4;
+  // Tambahan:
+  string current_module = 5;
+  uint32 modules_completed = 6;
+  uint32 modules_total = 7;
+  uint64 elapsed_seconds = 8;
+  uint64 estimated_remaining_seconds = 9;
+}
+
+message ScanPausedData {
+  string reason = 1;
+  float progress_at_pause = 2;
+  uint64 paused_at = 3;
+  string paused_by = 4;
+}
+
+message ScanResumedData {
+  uint64 resumed_at = 1;
+  string resumed_by = 2;
+}
+
+message ModuleStartedData {
+  string module_name = 1;
+  string module_type = 2;
+  uint32 module_order = 3;
+  uint64 started_at = 4;
+}
+
+// SPEC FIX #6: ModuleEvent sesuai spec
+message ModuleEvent {
+  string module_name = 1;
+  string status = 2;
+  uint32 duration = 3;
+  // Tambahan:
+  string module_type = 4;
+  uint32 findings_count = 5;
+  uint32 errors_count = 6;
+  uint64 bytes_sent = 7;
+  uint64 bytes_received = 8;
+  uint64 completed_at = 9;
+}
+
+message ModuleFailedData {
+  string module_name = 1;
+  string module_type = 2;
+  string error_message = 3;
+  string error_code = 4;
+  uint64 duration_ms = 5;
+  bool retryable = 6;
+  uint32 retry_count = 7;
+  uint64 failed_at = 8;
+}
+
+message FindingFoundData {
+  string finding_id = 1;
+  string finding_type = 2;
+  string severity = 3;
+  string title = 4;
+  string description = 5;
+  string module_source = 6;
+  float confidence = 7;
+  uint64 discovered_at = 8;
+}
+
+message ScanCompletedData {
+  uint32 total_findings = 1;
+  uint32 critical_findings = 2;
+  uint32 high_findings = 3;
+  uint32 medium_findings = 4;
+  uint32 low_findings = 5;
+  uint32 info_findings = 6;
+  float overall_risk_score = 7;
+  uint64 total_duration_seconds = 8;
+  uint32 modules_executed = 9;
+  uint32 modules_failed = 10;
+  uint32 pages_crawled = 11;
+  uint64 total_bytes_transferred = 12;
+  uint64 completed_at = 13;
+}
+
+message ScanFailedData {
+  string error_message = 1;
+  string error_code = 2;
+  string failed_at_stage = 3;
+  float progress_at_failure = 4;
+  uint64 duration_seconds = 5;
+  uint64 failed_at = 6;
+}
+
+message ScanCancelledData {
+  string reason = 1;
+  string cancelled_by = 2;
+  float progress_at_cancel = 3;
+  uint64 duration_seconds = 4;
+  uint64 cancelled_at = 5;
+}
+
+// ============================================================
+// SCAN PROFILE
+// ============================================================
+
+message ScanProfile {
+  string profile_type = 1;
+  uint32 threads = 2;
+  uint32 timeout_seconds = 3;
+  uint32 delay_ms = 4;
+  uint32 max_pages = 5;
+  bool follow_redirects = 6;
+  bool respect_robots = 7;
+  bool enable_js = 8;
+  uint32 max_depth = 9;
+  uint32 max_retries = 10;
+  bool user_agent_rotation = 11;
+  repeated string custom_headers = 12;
+  repeated string exclude_patterns = 13;
+  optional PortRange port_range = 14;
+}
+
+message PortRange {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
+// ============================================================
+// SCAN REQUEST & RESPONSE
+// ============================================================
+
+message ScanRequest {
+  string request_id = 1;
+  string target_url = 2;
+  ScanProfile profile = 3;
+  uint32 timeout_seconds = 4;
+  map<string, string> options = 5;
+  repeated string tags = 6;
+  string priority = 7;
+  string callback_url = 8;
+  uint64 created_at = 9;
+  string created_by = 10;
+}
+
+message ScanResponse {
+  string request_id = 1;
+  string scan_id = 2;
+  string status = 3;
+  string message = 4;
+  string status_url = 5;
+  string report_url = 6;
+  uint64 created_at = 7;
+}
+
+message ScanStatusRequest {
+  string scan_id = 1;
+}
+
+message ScanStatusResponse {
+  string scan_id = 1;
+  string state = 2;
+  float progress = 3;
+  string current_step = 4;
+  uint64 elapsed_seconds = 5;
+  uint64 estimated_remaining_seconds = 6;
+  uint32 pages_done = 7;
+  uint32 pages_total = 8;
+  uint32 findings_count = 9;
+  repeated string modules_done = 10;
+  repeated string modules_pending = 11;
+  repeated string modules_failed = 12;
+  repeated string errors = 13;
+  uint64 last_updated = 14;
+}
+
+message ScanCancelRequest {
+  string scan_id = 1;
+  string reason = 2;
+}
+
+message ScanCancelResponse {
+  string scan_id = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+message ScanListRequest {
+  uint32 page = 1;
+  uint32 page_size = 2;
+  string filter_status = 3;
+  string filter_profile = 4;
+  string sort_by = 5;
+  string sort_direction = 6;
+}
+
+message ScanListResponse {
+  repeated ScanSummary scans = 1;
+  uint32 total = 2;
+  uint32 page = 3;
+  uint32 page_size = 4;
+  uint32 total_pages = 5;
+}
+
+message ScanSummary {
+  string scan_id = 1;
+  string target_url = 2;
+  string profile = 3;
+  string status = 4;
+  float progress = 5;
+  uint32 findings_count = 6;
+  uint64 started_at = 7;
+  uint64 completed_at = 8;
+}
+
+// ============================================================
+// SERVICE DEFINITION
+// ============================================================
+
+// SPEC FIX #6: Rename dari ScanService ke ScanEventService
+service ScanEventService {
+  // Subscribe ke scan events (streaming)
+  rpc SubscribeEvents(SubscribeScanEventsRequest) returns (stream ScanEvent);
+
+  // Emit scan event (internal)
+  rpc EmitEvent(ScanEvent) returns (Ack);
+
+  // Mulai scan baru
+  rpc StartScan(ScanRequest) returns (ScanResponse);
+
+  // Dapatkan status scan
+  rpc GetScanStatus(ScanStatusRequest) returns (ScanStatusResponse);
+
+  // Batalkan scan
+  rpc CancelScan(ScanCancelRequest) returns (ScanCancelResponse);
+
+  // List scans
+  rpc ListScans(ScanListRequest) returns (ScanListResponse);
+}
+
+message SubscribeScanEventsRequest {
+  string subscriber_id = 1;
+  repeated string scan_ids = 2;
+  repeated EventType event_types = 3;
+  bool include_progress = 4;
+  float progress_interval = 5;
+}
+
+message Ack {
+  bool success = 1;
+  string message = 2;
+  string error_code = 3;
+

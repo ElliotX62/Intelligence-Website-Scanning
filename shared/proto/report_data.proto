@@ -1,0 +1,408 @@
+// shared/proto/report_data.proto
+// IWS v1.0 - Report Data Protocol
+// Mendefinisikan protokol komunikasi untuk report data
+
+syntax = "proto3";
+
+package iws.report;
+
+// ============================================================
+// REPORT DATA
+// ============================================================
+
+// SPEC FIX #9: Field 3-6 sesuai spec (summary, details, tracker, timeline)
+// Field tambahan di nomor > 6
+message ReportData {
+  string report_id = 1;
+  string scan_id = 2;
+  ExecutiveSummary summary = 3;          // SPEC: field 3
+  TechnicalDeepDive details = 4;         // SPEC: field 4, rename dari TechnicalDetails
+  VulnerabilityTracker tracker = 5;      // SPEC: field 5
+  ReportTimeline timeline = 6;           // SPEC: field 6
+  // Field tambahan di nomor > 6:
+  ReportType report_type = 7;
+  string title = 8;
+  string target_url = 9;
+  uint64 scan_date = 10;
+  string generated_by = 11;
+  ReportStatistics statistics = 12;
+  repeated ReportFinding findings = 13;
+  repeated Recommendation recommendations = 14;
+  ReportMetadata metadata = 15;
+  uint64 created_at = 16;
+}
+
+enum ReportType {
+  REPORT_TYPE_FULL_REPORT = 0;
+  REPORT_TYPE_EXECUTIVE_SUMMARY = 1;
+  REPORT_TYPE_TECHNICAL_DEEP_DIVE = 2;
+  REPORT_TYPE_VULNERABILITY_TRACKER = 3;
+}
+
+enum ReportFormat {
+  REPORT_FORMAT_JSON = 0;
+  REPORT_FORMAT_TXT = 1;
+  REPORT_FORMAT_DOCS = 2;
+  REPORT_FORMAT_CSV = 3;
+  REPORT_FORMAT_HTML = 4;
+  REPORT_FORMAT_PDF = 5;
+}
+
+// ============================================================
+// EXECUTIVE SUMMARY
+// ============================================================
+
+message ExecutiveSummary {
+  string overview = 1;
+  repeated KeyFinding key_findings = 2;
+  RiskSummary risk_summary = 3;
+  string security_grade = 4;
+  repeated ActionItem actions = 5;
+  bool generated_by_ai = 6;
+  string ai_model = 7;
+}
+
+message KeyFinding {
+  string title = 1;
+  Severity severity = 2;
+  string impact = 3;
+  string description = 4;
+  repeated string affected_systems = 5;
+}
+
+message RiskSummary {
+  uint32 total_vulnerabilities = 1;
+  uint32 critical_count = 2;
+  uint32 high_count = 3;
+  uint32 medium_count = 4;
+  uint32 low_count = 5;
+  uint32 info_count = 6;
+  Severity overall_risk_level = 7;
+  string risk_trend = 8;
+}
+
+message ActionItem {
+  Priority priority = 1;
+  string title = 2;
+  string description = 3;
+  string estimated_effort = 4;
+  string estimated_duration = 5;
+  string responsible_team = 6;
+  string deadline_recommendation = 7;
+}
+
+// Konsisten dengan analysis_results.proto (M2 fix)
+enum Severity {
+  SEVERITY_CRITICAL = 0;
+  SEVERITY_HIGH = 1;
+  SEVERITY_MEDIUM = 2;
+  SEVERITY_LOW = 3;
+  SEVERITY_INFO = 4;
+}
+
+enum Priority {
+  PRIORITY_P0_CRITICAL = 0;
+  PRIORITY_P1_HIGH = 1;
+  PRIORITY_P2_MEDIUM = 2;
+  PRIORITY_P3_LOW = 3;
+  PRIORITY_P4_INFO = 4;
+}
+
+// ============================================================
+// TECHNICAL DEEP DIVE (SPEC FIX #9: rename dari TechnicalDetails)
+// ============================================================
+
+message TechnicalDeepDive {
+  repeated DetailedFinding findings = 1;     // SPEC: findings (bukan detailed_findings)
+  optional string root_cause = 2;            // SPEC: root_cause (bukan root_cause_analysis)
+  repeated string affected_systems = 3;
+  // Tambahan:
+  string attack_surface_summary = 5;
+  string methodology = 6;
+}
+
+message DetailedFinding {
+  string id = 1;
+  string title = 2;
+  Severity severity = 3;
+  float cvss_score = 4;
+  string cve_id = 5;
+  string description = 6;
+  string technical_details = 7;
+  repeated Evidence evidence = 8;
+  string proof_of_concept = 9;
+  string impact = 10;
+  string remediation = 11;
+  repeated string references = 12;
+  uint64 discovered_at = 13;
+}
+
+message Evidence {
+  EvidenceType evidence_type = 1;
+  string description = 2;
+  string data = 3;
+  uint64 timestamp = 4;
+}
+
+enum EvidenceType {
+  EVIDENCE_TYPE_SCREENSHOT = 0;
+  EVIDENCE_TYPE_REQUEST_RESPONSE = 1;
+  EVIDENCE_TYPE_LOG_ENTRY = 2;
+  EVIDENCE_TYPE_CODE_SNIPPET = 3;
+  EVIDENCE_TYPE_CONFIGURATION = 4;
+  EVIDENCE_TYPE_NETWORK_CAPTURE = 5;
+}
+
+// ============================================================
+// VULNERABILITY TRACKER
+// ============================================================
+
+message VulnerabilityTracker {
+  repeated TrackedVulnerability tracked_vulnerabilities = 1;
+  repeated StatusChange status_history = 2;
+  SlaCompliance sla_compliance = 3;
+}
+
+message TrackedVulnerability {
+  string id = 1;
+  string title = 2;
+  Severity severity = 3;
+  VulnStatus status = 4;
+  string assigned_to = 5;
+  uint64 opened_at = 6;
+  uint64 closed_at = 7;
+  uint64 updated_at = 8;
+  uint64 sla_deadline = 9;
+  repeated string notes = 10;
+}
+
+enum VulnStatus {
+  VULN_STATUS_OPEN = 0;
+  VULN_STATUS_IN_PROGRESS = 1;
+  VULN_STATUS_FIXED = 2;
+  VULN_STATUS_WONT_FIX = 3;
+  VULN_STATUS_FALSE_POSITIVE = 4;
+  VULN_STATUS_DUPLICATE = 5;
+}
+
+message StatusChange {
+  string vulnerability_id = 1;
+  VulnStatus from_status = 2;
+  VulnStatus to_status = 3;
+  string changed_by = 4;
+  uint64 changed_at = 5;
+  string comment = 6;
+}
+
+message SlaCompliance {
+  uint32 critical_sla_hours = 1;
+  uint32 high_sla_days = 2;
+  uint32 medium_sla_days = 3;
+  uint32 low_sla_days = 4;
+  float critical_compliance_rate = 5;
+  float high_compliance_rate = 6;
+  float medium_compliance_rate = 7;
+  float low_compliance_rate = 8;
+  float overall_compliance_rate = 9;
+}
+
+// ============================================================
+// REPORT TIMELINE
+// ============================================================
+
+message ReportTimeline {
+  repeated TimelineEvent events = 1;
+}
+
+message TimelineEvent {
+  uint64 timestamp = 1;
+  TimelineEventType event_type = 2;
+  string description = 3;
+  bytes details = 4;
+  Severity severity = 5;
+}
+
+enum TimelineEventType {
+  TIMELINE_EVENT_TYPE_SCAN_STARTED = 0;
+  TIMELINE_EVENT_TYPE_SCAN_COMPLETED = 1;
+  TIMELINE_EVENT_TYPE_SCAN_FAILED = 2;
+  TIMELINE_EVENT_TYPE_FINDING_FOUND = 3;
+  TIMELINE_EVENT_TYPE_VULNERABILITY_DETECTED = 4;
+  TIMELINE_EVENT_TYPE_STATUS_CHANGED = 5;
+  TIMELINE_EVENT_TYPE_ALERT_TRIGGERED = 6;
+  TIMELINE_EVENT_TYPE_REPORT_GENERATED = 7;
+  TIMELINE_EVENT_TYPE_ANALYSIS_STARTED = 8;
+  TIMELINE_EVENT_TYPE_ANALYSIS_COMPLETED = 9;
+  TIMELINE_EVENT_TYPE_MONITORING_EVENT = 10;
+}
+
+// ============================================================
+// REPORT STATISTICS & FINDING
+// ============================================================
+
+message ReportStatistics {
+  uint64 scan_duration_seconds = 1;
+  uint32 pages_crawled = 2;
+  uint32 links_found = 3;
+  uint32 forms_analyzed = 4;
+  uint32 scripts_analyzed = 5;
+  uint32 ports_scanned = 6;
+  uint32 vulnerabilities_found = 7;
+  uint32 critical_findings = 8;
+  uint32 high_findings = 9;
+  uint32 medium_findings = 10;
+  uint32 low_findings = 11;
+  uint32 modules_executed = 12;
+  uint32 api_calls_made = 13;
+  uint64 data_transferred_bytes = 14;
+  double average_response_time_ms = 15;
+}
+
+message ReportFinding {
+  string id = 1;
+  string title = 2;
+  string finding_type = 3;
+  Severity severity = 4;
+  Confidence confidence = 5;
+  string description = 6;
+  string location = 7;
+  string evidence = 8;
+  string remediation = 9;
+  string cve_id = 10;
+  float cvss_score = 11;
+  string module_source = 12;
+  uint64 discovered_at = 13;
+}
+
+// Konsisten dengan analysis_results.proto
+enum Confidence {
+  CONFIDENCE_VERIFIED = 0;
+  CONFIDENCE_HIGH = 1;
+  CONFIDENCE_MEDIUM = 2;
+  CONFIDENCE_LOW = 3;
+}
+
+message Recommendation {
+  Priority priority = 1;
+  string title = 2;
+  string description = 3;
+  string category = 4;
+  string effort = 5;
+  string impact = 6;
+  repeated string related_finding_ids = 7;
+}
+
+// ============================================================
+// REPORT METADATA
+// ============================================================
+
+message ReportMetadata {
+  string version = 1;
+  string language = 2;
+  string template = 3;
+  bool include_charts = 4;
+  bool include_raw_data = 5;
+  string watermark = 6;
+  string classification = 7;
+  map<string, string> custom_fields = 8;
+}
+
+// ============================================================
+// REPORT REQUEST & RESPONSE
+// ============================================================
+
+message ReportRequest {
+  string scan_id = 1;
+  ReportFormat format = 2;
+  ReportOptions options = 3;
+}
+
+message ReportOptions {
+  string title_override = 1;
+  bool include_charts = 2;
+  bool include_raw_data = 3;
+  bool include_executive_summary = 4;
+  bool include_technical_details = 5;
+  bool include_vulnerability_tracker = 6;
+  bool include_timeline = 7;
+  string watermark = 8;
+  string language = 9;
+  string template = 10;
+}
+
+// SPEC FIX #7 (konsisten): report_data=1, content_type=2, size=3
+message ReportResponse {
+  bytes report_data = 1;
+  string content_type = 2;
+  uint64 size = 3;
+  // Tambahan:
+  string report_id = 5;
+  ReportFormat format = 6;
+  uint64 generated_at = 7;
+}
+
+message ReportExportRequest {
+  string scan_id = 1;
+  ReportFormat format = 2;
+  string output_path = 3;
+  ReportOptions options = 4;
+}
+
+message ReportExportResponse {
+  string report_id = 1;
+  string output_path = 2;
+  uint64 size_bytes = 3;
+  ReportFormat format = 4;
+  uint64 exported_at = 5;
+}
+
+// ============================================================
+// SERVICE DEFINITION
+// ============================================================
+
+service ReportService {
+  rpc GenerateReport(ReportRequest) returns (ReportResponse);
+  rpc ExportReport(ReportExportRequest) returns (ReportExportResponse);
+  rpc ScheduleReport(ScheduleReportRequest) returns (ScheduleReportResponse);
+  rpc CancelSchedule(CancelScheduleRequest) returns (Ack);
+  rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
+}
+
+message ScheduleReportRequest {
+  string scan_id = 1;
+  ReportFormat format = 2;
+  string cron_expression = 3;
+  ReportOptions options = 4;
+}
+
+message ScheduleReportResponse {
+  string schedule_id = 1;
+  string scan_id = 2;
+  ReportFormat format = 3;
+  string cron_expression = 4;
+  bool enabled = 5;
+  uint64 next_run = 6;
+  uint64 created_at = 7;
+}
+
+message CancelScheduleRequest {
+  string schedule_id = 1;
+}
+
+message ListSchedulesRequest {
+  uint32 page = 1;
+  uint32 page_size = 2;
+}
+
+message ListSchedulesResponse {
+  repeated ScheduleReportResponse schedules = 1;
+  uint32 total = 2;
+  uint32 page = 3;
+  uint32 page_size = 4;
+}
+
+message Ack {
+  bool success = 1;
+  string message = 2;
+  string error_code = 3;
+}

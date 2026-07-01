@@ -1,0 +1,472 @@
+// shared/proto/analysis_results.proto
+// IWS v1.0 - Analysis Results Protocol
+// Mendefinisikan protokol komunikasi untuk analysis results
+
+syntax = "proto3";
+
+package iws.analysis;
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+// ANALYSIS RESULT
+// ============================================================
+
+message AnalysisResult {
+  string analysis_id = 1;
+  string scan_id = 2;
+  string target_url = 3;
+  AnalysisStatus status = 4;
+  google.protobuf.Timestamp start_time = 5;
+  google.protobuf.Timestamp end_time = 6;
+  uint64 duration_seconds = 7;
+  repeated Finding findings = 8;
+  repeated Vulnerability vulnerabilities = 9;
+  RiskAssessment risk_assessment = 10;
+  repeated Correlation correlations = 11;
+  repeated Anomaly anomalies = 12;
+  repeated PatternMatch patterns = 13;
+  string summary = 14;
+  float confidence_score = 15;
+  repeated string stages_completed = 16;
+  repeated string stages_failed = 17;
+  repeated AnalysisError errors = 18;
+  AnalysisMetadata metadata = 19;
+}
+
+enum AnalysisStatus {
+  ANALYSIS_STATUS_UNSPECIFIED = 0;
+  ANALYSIS_STATUS_PENDING = 1;
+  ANALYSIS_STATUS_PREPROCESSING = 2;
+  ANALYSIS_STATUS_PATTERN_DETECTING = 3;
+  ANALYSIS_STATUS_VULNERABILITY_MATCHING = 4;
+  ANALYSIS_STATUS_CROSS_REFERENCING = 5;
+  ANALYSIS_STATUS_RISK_SCORING = 6;
+  ANALYSIS_STATUS_SUMMARIZING = 7;
+  ANALYSIS_STATUS_COMPLETED = 8;
+  ANALYSIS_STATUS_FAILED = 9;
+  ANALYSIS_STATUS_TIMED_OUT = 10;
+}
+
+// ============================================================
+// FINDING
+// ============================================================
+
+message Finding {
+  string id = 1;
+  FindingType finding_type = 2;
+  string title = 3;
+  string description = 4;
+  Severity severity = 5;
+  Confidence confidence = 6;
+  string source_module = 7;
+  bytes evidence = 8;
+  google.protobuf.Timestamp timestamp = 9;
+  repeated string related_finding_ids = 10;
+  float false_positive_probability = 11;
+
+  oneof detail {
+    SecurityFinding security = 20;
+    ContentFinding content = 21;
+    InfrastructureFinding infrastructure = 22;
+    IntelligenceFinding intelligence = 23;
+  }
+}
+
+enum FindingType {
+  FINDING_TYPE_UNSPECIFIED = 0;
+  FINDING_TYPE_VULNERABILITY = 1;
+  FINDING_TYPE_MISCONFIGURATION = 2;
+  FINDING_TYPE_INFORMATION_LEAK = 3;
+  FINDING_TYPE_OUTDATED_SOFTWARE = 4;
+  FINDING_TYPE_WEAK_CIPHER = 5;
+  FINDING_TYPE_EXPOSED_SERVICE = 6;
+  FINDING_TYPE_SUSPICIOUS_BEHAVIOR = 7;
+  FINDING_TYPE_COMPLIANCE_ISSUE = 8;
+  FINDING_TYPE_THREAT_INDICATOR = 9;
+  FINDING_TYPE_ANOMALY = 10;
+  FINDING_TYPE_PATTERN = 11;
+}
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO = 1;
+  SEVERITY_LOW = 2;
+  SEVERITY_MEDIUM = 3;
+  SEVERITY_HIGH = 4;
+  SEVERITY_CRITICAL = 5;
+}
+
+enum Confidence {
+  CONFIDENCE_UNSPECIFIED = 0;
+  CONFIDENCE_LOW = 1;
+  CONFIDENCE_MEDIUM = 2;
+  CONFIDENCE_HIGH = 3;
+  CONFIDENCE_VERIFIED = 4;
+}
+
+message SecurityFinding {
+  string vulnerability_type = 1;
+  string cve_id = 2;
+  float cvss_score = 3;
+  string cvss_vector = 4;
+  string affected_component = 5;
+  string affected_version = 6;
+  string fixed_version = 7;
+  repeated string references = 8;
+  string remediation = 9;
+  bool exploit_available = 10;
+  string exploit_maturity = 11;
+}
+
+message ContentFinding {
+  string content_type = 1;
+  string location = 2;
+  string payload = 3;
+  string context = 4;
+  bool was_sanitized = 5;
+  bool was_encoded = 6;
+  bool waf_detected = 7;
+}
+
+message InfrastructureFinding {
+  string infrastructure_type = 1;
+  string component = 2;
+  string version = 3;
+  string configuration_issue = 4;
+  string recommendation = 5;
+}
+
+message IntelligenceFinding {
+  string intelligence_type = 1;
+  string source = 2;
+  string indicator_value = 3;
+  string indicator_type = 4;
+  uint32 sightings = 5;
+  string tlp_level = 6;
+}
+
+// ============================================================
+// VULNERABILITY
+// ============================================================
+
+message Vulnerability {
+  string id = 1;
+  string cve_id = 2;
+  string title = 3;
+  string description = 4;
+  Severity severity = 5;
+  float cvss_score = 6;
+  string cvss_vector = 7;
+  float epss_score = 8;
+  string affected_component = 9;
+  string affected_version = 10;
+  string fixed_version = 11;
+  repeated string references = 12;
+  string remediation = 13;
+  bool exploit_available = 14;
+  ExploitMaturity exploit_maturity = 15;
+  google.protobuf.Timestamp discovered_at = 16;
+  VulnerabilityStatus status = 17;
+}
+
+enum ExploitMaturity {
+  EXPLOIT_MATURITY_UNSPECIFIED = 0;
+  EXPLOIT_MATURITY_UNPROVEN = 1;
+  EXPLOIT_MATURITY_PROOF_OF_CONCEPT = 2;
+  EXPLOIT_MATURITY_FUNCTIONAL = 3;
+  EXPLOIT_MATURITY_HIGH = 4;
+  EXPLOIT_MATURITY_WEAPONIZED = 5;
+}
+
+enum VulnerabilityStatus {
+  VULNERABILITY_STATUS_UNSPECIFIED = 0;
+  VULNERABILITY_STATUS_OPEN = 1;
+  VULNERABILITY_STATUS_IN_PROGRESS = 2;
+  VULNERABILITY_STATUS_FIXED = 3;
+  VULNERABILITY_STATUS_WONT_FIX = 4;
+  VULNERABILITY_STATUS_FALSE_POSITIVE = 5;
+  VULNERABILITY_STATUS_DUPLICATE = 6;
+}
+
+// ============================================================
+// RISK ASSESSMENT
+// ============================================================
+
+message RiskAssessment {
+  float base_score = 1;
+  float temporal_score = 2;
+  float environmental_score = 3;
+  float business_score = 4;
+  float overall_score = 5;
+  Severity risk_level = 6;
+  Priority priority = 7;
+  BusinessImpact business_impact = 8;
+  string cvss_vector = 9;
+  repeated RiskFactor risk_factors = 10;
+}
+
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  PRIORITY_P0_CRITICAL = 1;
+  PRIORITY_P1_HIGH = 2;
+  PRIORITY_P2_MEDIUM = 3;
+  PRIORITY_P3_LOW = 4;
+  PRIORITY_P4_INFO = 5;
+}
+
+message BusinessImpact {
+  Severity financial = 1;
+  Severity reputational = 2;
+  Severity regulatory = 3;
+  Severity operational = 4;
+  Severity data_loss = 5;
+}
+
+message RiskFactor {
+  string name = 1;
+  string description = 2;
+  float weight = 3;
+  float score = 4;
+}
+
+// ============================================================
+// CORRELATION
+// ============================================================
+
+message Correlation {
+  string id = 1;
+  repeated string finding_ids = 2;
+  CorrelationType correlation_type = 3;
+  string description = 4;
+  float strength = 5;
+  bytes evidence = 6;
+}
+
+enum CorrelationType {
+  CORRELATION_TYPE_UNSPECIFIED = 0;
+  CORRELATION_TYPE_SAME_COMPONENT = 1;
+  CORRELATION_TYPE_ATTACK_CHAIN = 2;
+  CORRELATION_TYPE_SHARED_VULNERABILITY = 3;
+  CORRELATION_TYPE_INFRASTRUCTURE_DEPENDENCY = 4;
+  CORRELATION_TYPE_CONFIGURATION_DRIFT = 5;
+  CORRELATION_TYPE_TEMPORAL = 6;
+  CORRELATION_TYPE_CAUSAL = 7;
+}
+
+// ============================================================
+// ANOMALY
+// ============================================================
+
+message Anomaly {
+  string id = 1;
+  AnomalyType anomaly_type = 2;
+  string description = 3;
+  Severity severity = 4;
+  Confidence confidence = 5;
+  bytes data_point = 6;
+  bytes expected_value = 7;
+  float deviation_score = 8;
+  google.protobuf.Timestamp timestamp = 9;
+  string module_source = 10;
+}
+
+enum AnomalyType {
+  ANOMALY_TYPE_UNSPECIFIED = 0;
+  ANOMALY_TYPE_OUTLIER = 1;
+  ANOMALY_TYPE_TREND_BREAK = 2;
+  ANOMALY_TYPE_SPIKE = 3;
+  ANOMALY_TYPE_DIP = 4;
+  ANOMALY_TYPE_PATTERN_BREAK = 5;
+  ANOMALY_TYPE_SEASONAL = 6;
+  ANOMALY_TYPE_CONTEXTUAL = 7;
+}
+
+// ============================================================
+// PATTERN MATCH
+// ============================================================
+
+message PatternMatch {
+  string id = 1;
+  string pattern_name = 2;
+  PatternType pattern_type = 3;
+  repeated PatternOccurrence occurrences = 4;
+  uint32 total_occurrences = 5;
+  string pattern_hash = 6;
+}
+
+enum PatternType {
+  PATTERN_TYPE_UNSPECIFIED = 0;
+  PATTERN_TYPE_REGEX = 1;
+  PATTERN_TYPE_SUBSTRING = 2;
+  PATTERN_TYPE_STRUCTURAL = 3;
+  PATTERN_TYPE_BEHAVIORAL = 4;
+  PATTERN_TYPE_AHO_CORASICK = 5;
+  PATTERN_TYPE_SEQUENCE = 6;
+}
+
+message PatternOccurrence {
+  string location = 1;
+  uint32 line_number = 2;
+  uint32 column_number = 3;
+  string matched_text = 4;
+  string context = 5;
+}
+
+// ============================================================
+// ANALYSIS ERROR
+// ============================================================
+
+message AnalysisError {
+  string stage = 1;
+  string error_type = 2;
+  string message = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  bool recoverable = 5;
+}
+
+// ============================================================
+// ANALYSIS METADATA
+// ============================================================
+
+message AnalysisMetadata {
+  string analyzer_version = 1;
+  string contract_version = 2;
+  string analysis_host = 3;
+  string analysis_os = 4;
+  repeated string models_used = 5;
+  string rules_version = 6;
+  string cve_database_version = 7;
+}
+
+// ============================================================
+// CROSS REFERENCE RESULT
+// ============================================================
+
+message CrossReferenceResult {
+  repeated Correlation correlations = 1;
+  CorrelationGraph correlation_graph = 2;
+  repeated AttackChain attack_chains = 3;
+  repeated FalsePositiveSuggestion false_positive_suggestions = 4;
+  repeated Finding new_findings = 5;
+}
+
+message CorrelationGraph {
+  repeated GraphNode nodes = 1;
+  repeated GraphEdge edges = 2;
+  float density = 3;
+  repeated Cluster clusters = 4;
+}
+
+message GraphNode {
+  string id = 1;
+  string label = 2;
+  string node_type = 3;
+  Severity severity = 4;
+  bytes metadata = 5;
+}
+
+message GraphEdge {
+  string source_id = 1;
+  string target_id = 2;
+  CorrelationType edge_type = 3;
+  float weight = 4;
+  string label = 5;
+}
+
+message Cluster {
+  repeated string node_ids = 1;
+  string label = 2;
+}
+
+message AttackChain {
+  string name = 1;
+  string description = 2;
+  repeated AttackStep steps = 3;
+  Severity overall_severity = 4;
+  float likelihood = 5;
+}
+
+message AttackStep {
+  uint32 step_number = 1;
+  string finding_id = 2;
+  string description = 3;
+  repeated string prerequisites = 4;
+  repeated string consequences = 5;
+  Severity difficulty = 6;
+}
+
+message FalsePositiveSuggestion {
+  string finding_id = 1;
+  string reason = 2;
+  float confidence = 3;
+  string recommendation = 4;
+}
+
+// ============================================================
+// SERVICE DEFINITION
+// ============================================================
+
+service AnalysisService {
+  // Analisis scan data
+  rpc Analyze(AnalyzeRequest) returns (AnalysisResult);
+
+  // Cross-reference analysis
+  rpc CrossReference(CrossReferenceRequest) returns (CrossReferenceResult);
+
+  // Dapatkan progress analisis
+  rpc GetProgress(AnalysisProgressRequest) returns (AnalysisProgressResponse);
+
+  // Batalkan analisis
+  rpc CancelAnalysis(CancelAnalysisRequest) returns (Ack);
+}
+
+message AnalyzeRequest {
+  string scan_id = 1;
+  AnalysisConfig config = 2;
+}
+
+message AnalysisConfig {
+  bool enable_cross_reference = 1;
+  bool enable_cve_matching = 2;
+  bool enable_risk_scoring = 3;
+  bool enable_pattern_detection = 4;
+  bool enable_ml_classification = 5;
+  bool enable_nlp_processing = 6;
+  bool enable_anomaly_detection = 7;
+  float confidence_threshold = 8;
+  uint64 max_analysis_time_seconds = 9;
+  bool parallel_stages = 10;
+  string cvss_version = 11;
+  string risk_formula = 12;
+  uint32 correlation_depth = 13;
+}
+
+message CrossReferenceRequest {
+  string analysis_id = 1;
+}
+
+message AnalysisProgressRequest {
+  string analysis_id = 1;
+}
+
+message AnalysisProgressResponse {
+  string analysis_id = 1;
+  float progress = 2;
+  string current_stage = 3;
+  uint32 stages_completed = 4;
+  uint32 stages_total = 5;
+  uint64 elapsed_seconds = 6;
+  uint64 estimated_remaining_seconds = 7;
+}
+
+message CancelAnalysisRequest {
+  string analysis_id = 1;
+  string reason = 2;
+}
+
+message Ack {
+  bool success = 1;
+  string message = 2;
+  string error_code = 3;
+}
